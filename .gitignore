@@ -1,0 +1,34 @@
+# Node
+node_modules/
+dist/
+
+# Claude Code / OMC internal
+.claude/
+.omc/
+src-tauri/.omc/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Keys (NEVER commit)
+*.key
+*.pem
+*.p12
+.env
+.env.*
+
+# IDE
+.vscode/settings.json
+.idea/
+*.suo
+*.user

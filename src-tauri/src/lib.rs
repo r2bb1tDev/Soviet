@@ -1,0 +1,1780 @@
+mod crypto;
+mod identity;
+mod storage;
+mod network;
+mod nostr;
+mod p2p;
+
+use std::sync::{Arc, Mutex};
+use tauri::{Manager, State, AppHandle, Emitter};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+use serde::{Serialize, Deserialize};
+use storage::{Db, DbContact, DbMessage};
+use network::{LanNetwork, LanPacket};
+use tokio::sync::mpsc;
+
+const TRAY_IDLE_PNG:  &[u8] = include_bytes!("../icons/tray_idle.png");
+const TRAY_MSG_PNG:   &[u8] = include_bytes!("../icons/tray_message.png");
+const DEFAULT_RELAY: &str = "wss://relay.damus.io";
+
+// ─── App State ────────────────────────────────────────────────────────────────
+
+pub struct AppState {
+    pub db: Db,
+    pub keypair: Mutex<Option<crypto::KeyPair>>,
+    pub identity: Mutex<Option<identity::Identity>>,
+    pub lan: Mutex<Option<LanNetwork>>,
+    pub lan_tx: mpsc::UnboundedSender<(String, LanPacket)>,
+    pub nostr: Mutex<Option<nostr::NostrHandle>>,
+    pub p2p: Mutex<Option<p2p::P2pHandle>>,
+}
+
+// ─── Commands — Identity / Onboarding ────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct IdentityInfo {
+    pub nickname: String,
+    pub public_key: String,
+    pub has_identity: bool,
+}
+
+#[tauri::command]
+fn get_identity(state: State<AppState>) -> IdentityInfo {
+    let id = state.identity.lock().unwrap();
+    match id.as_ref() {
+        Some(i) => IdentityInfo {
+            nickname: i.nickname.clone(),
+            public_key: i.public_key.clone(),
+            has_identity: true,
+        },
+        None => IdentityInfo {
+            nickname: String::new(),
+            public_key: String::new(),
+            has_identity: false,
+        },
+    }
+}
+
+#[tauri::command]
+fn create_identity(
+    nickname: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<IdentityInfo, String> {
+    let (ident, keypair) = identity::create_identity(&nickname)
+        .map_err(|e| e.to_string())?;
+
+    let db = state.db.0.lock().unwrap();
+    storage::set_setting(&db, "nickname", &nickname).ok();
+    storage::set_setting(&db, "public_key", &ident.public_key).ok();
+    storage::set_setting(&db, "status", "online").ok();
+    drop(db);
+
+    let result = IdentityInfo {
+        nickname: ident.nickname.clone(),
+        public_key: ident.public_key.clone(),
+        has_identity: true,
+    };
+
+    // Запускаем LAN если не запущен
+    {
+        let mut lan_guard = state.lan.lock().unwrap();
+        if lan_guard.is_none() {
+            let tx = state.lan_tx.clone();
+            let l = LanNetwork::new(ident.public_key.clone(), ident.nickname.clone(), tx);
+            l.start().ok();
+            *lan_guard = Some(l);
+        }
+    }
+
+    // Подписываемся на Nostr DMs
+    {
+        let nostr_guard = state.nostr.lock().unwrap();
+        if let Some(n) = nostr_guard.as_ref() {
+            n.cmd_tx.try_send(nostr::NostrCmd::SubscribeDms {
+                my_soviet_pk: ident.public_key.clone(),
+            }).ok();
+        }
+    }
+
+    // Запускаем P2P mesh если не запущен
+    {
+        let mut p2p_guard = state.p2p.lock().unwrap();
+        if p2p_guard.is_none() {
+            let pk_bytes = keypair.private_key_bytes();
+            let tx = state.lan_tx.clone();
+            match p2p::start(pk_bytes, tx, app) {
+                Ok(handle) => { *p2p_guard = Some(handle); }
+                Err(e) => log::error!("P2P start error: {}", e),
+            }
+        }
+    }
+
+    *state.identity.lock().unwrap() = Some(ident);
+    *state.keypair.lock().unwrap() = Some(keypair);
+
+    Ok(result)
+}
+
+#[tauri::command]
+fn export_keys(state: State<AppState>) -> Result<String, String> {
+    let kp = state.keypair.lock().unwrap();
+    match kp.as_ref() {
+        Some(kp) => Ok(identity::export_keys(kp)),
+        None => Err("No identity".to_string()),
+    }
+}
+
+#[tauri::command]
+fn import_keys(
+    encoded: String,
+    nickname: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<IdentityInfo, String> {
+    let keypair = identity::import_keys(&encoded).map_err(|e| e.to_string())?;
+    let ident = identity::Identity {
+        nickname: nickname.clone(),
+        public_key: keypair.public_key_base58(),
+    };
+    let db = state.db.0.lock().unwrap();
+    storage::set_setting(&db, "nickname", &nickname).ok();
+    storage::set_setting(&db, "public_key", &ident.public_key).ok();
+    drop(db);
+
+    // Запускаем LAN
+    {
+        let mut lan_guard = state.lan.lock().unwrap();
+        if lan_guard.is_none() {
+            let tx = state.lan_tx.clone();
+            let l = LanNetwork::new(ident.public_key.clone(), ident.nickname.clone(), tx);
+            l.start().ok();
+            *lan_guard = Some(l);
+        }
+    }
+
+    // Подписываемся на Nostr DMs
+    {
+        let nostr_guard = state.nostr.lock().unwrap();
+        if let Some(n) = nostr_guard.as_ref() {
+            n.cmd_tx.try_send(nostr::NostrCmd::SubscribeDms {
+                my_soviet_pk: ident.public_key.clone(),
+            }).ok();
+        }
+    }
+
+    // Запускаем P2P mesh
+    {
+        let mut p2p_guard = state.p2p.lock().unwrap();
+        if p2p_guard.is_none() {
+            let pk_bytes = keypair.private_key_bytes();
+            let tx = state.lan_tx.clone();
+            match p2p::start(pk_bytes, tx, app) {
+                Ok(handle) => { *p2p_guard = Some(handle); }
+                Err(e) => log::error!("P2P start error: {}", e),
+            }
+        }
+    }
+
+    let result = IdentityInfo {
+        nickname: ident.nickname.clone(),
+        public_key: ident.public_key.clone(),
+        has_identity: true,
+    };
+    *state.identity.lock().unwrap() = Some(ident);
+    *state.keypair.lock().unwrap() = Some(keypair);
+    Ok(result)
+}
+
+// ─── Commands — Contacts ─────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_contacts(state: State<AppState>) -> Result<Vec<DbContact>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::get_contacts(&db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn add_contact(
+    public_key: String,
+    nickname: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let contact = DbContact {
+        id: 0,
+        public_key,
+        nickname,
+        local_alias: None,
+        status: "offline".to_string(),
+        status_text: None,
+        last_seen: None,
+        notes: None,
+        is_blocked: false,
+        is_favorite: false,
+        added_at: chrono::Utc::now().timestamp(),
+        verified: false,
+    };
+    let db = state.db.0.lock().unwrap();
+    storage::upsert_contact(&db, &contact).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_contact(public_key: String, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::delete_contact(&db, &public_key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_contact(
+    public_key: String,
+    alias: Option<String>,
+    notes: Option<String>,
+    is_favorite: bool,
+    is_blocked: bool,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::update_contact_fields(
+        &db, &public_key,
+        alias.as_deref(), notes.as_deref(),
+        is_favorite, is_blocked,
+    ).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_lan_peers(state: State<AppState>) -> Vec<network::LanPeer> {
+    let lan = state.lan.lock().unwrap();
+    match lan.as_ref() {
+        Some(lan) => lan.get_peers(),
+        None => vec![],
+    }
+}
+
+#[tauri::command]
+fn get_safety_number(peer_pk: String, state: State<AppState>) -> Result<String, String> {
+    let id = state.identity.lock().unwrap();
+    match id.as_ref() {
+        Some(i) => Ok(crypto::safety_number(&i.public_key, &peer_pk)),
+        None => Err("No identity".to_string()),
+    }
+}
+
+// ─── Commands — Contact Requests ─────────────────────────────────────────────
+
+#[tauri::command]
+fn get_contact_requests(state: State<AppState>) -> Result<Vec<storage::ContactRequest>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::get_pending_requests(&db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn accept_contact_request(
+    public_key: String,
+    nickname: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    // Добавляем в контакты
+    let contact = DbContact {
+        id: 0,
+        public_key: public_key.clone(),
+        nickname: nickname.clone(),
+        local_alias: None,
+        status: "offline".to_string(),
+        status_text: None,
+        last_seen: None,
+        notes: None,
+        is_blocked: false,
+        is_favorite: false,
+        added_at: chrono::Utc::now().timestamp(),
+        verified: false,
+    };
+    storage::upsert_contact(&db, &contact).map_err(|e| e.to_string())?;
+    storage::update_request_status(&db, &public_key, "accepted").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn reject_contact_request(public_key: String, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::update_request_status(&db, &public_key, "rejected").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn send_contact_request(
+    recipient_pk: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let id_guard = state.identity.lock().unwrap();
+    let ident = id_guard.as_ref().ok_or("No identity")?;
+    let my_pk   = ident.public_key.clone();
+    let my_nick = ident.nickname.clone();
+    drop(id_guard);
+
+    let packet = network::make_contact_request_packet(&my_pk, &my_nick);
+
+    // 1. Try LAN
+    let sent = {
+        let lan_guard = state.lan.lock().unwrap();
+        if let Some(lan) = lan_guard.as_ref() {
+            if lan.is_peer_online(&recipient_pk) {
+                lan.send_to_peer(&recipient_pk, &packet).is_ok()
+            } else { false }
+        } else { false }
+    };
+
+    // 2. Try P2P mesh
+    let sent = if !sent {
+        let p2p_guard = state.p2p.lock().unwrap();
+        if let Some(p2p) = p2p_guard.as_ref() {
+            if let Some(peer_id) = p2p.is_peer_online(&recipient_pk) {
+                let data = serde_json::to_vec(&packet).unwrap_or_default();
+                p2p.cmd_tx.try_send(p2p::P2pCmd::SendMessage { peer_id, data }).is_ok()
+            } else { false }
+        } else { false }
+    } else { true };
+
+    // 3. Fallback: send contact request payload via Nostr DM
+    if !sent {
+        let kp_guard = state.keypair.lock().unwrap();
+        let kp = kp_guard.as_ref().ok_or("No keypair")?;
+        // Encrypt the contact_request packet payload as a Soviet DM
+        let payload_bytes = serde_json::to_vec(&packet).map_err(|e| e.to_string())?;
+        let encrypted = crypto::encrypt_message(kp, &recipient_pk, &payload_bytes)
+            .map_err(|e| e.to_string())?;
+        drop(kp_guard);
+        let enc_json = serde_json::to_string(&encrypted).map_err(|e| e.to_string())?;
+        let nostr_guard = state.nostr.lock().unwrap();
+        if let Some(n) = nostr_guard.as_ref() {
+            n.cmd_tx.try_send(nostr::NostrCmd::SendDm {
+                recipient_soviet_pk: recipient_pk,
+                encrypted_json: enc_json,
+            }).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+// ─── Commands — Chats & Messages ─────────────────────────────────────────────
+
+#[tauri::command]
+fn get_chats(state: State<AppState>) -> Result<Vec<storage::DbChat>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::get_chats(&db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_messages(
+    chat_id: i64,
+    limit: i64,
+    state: State<AppState>,
+) -> Result<Vec<DbMessage>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::get_messages(&db, chat_id, limit, None).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn mark_read(chat_id: i64, state: State<AppState>, app: AppHandle) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::mark_messages_read(&db, chat_id).map_err(|e| e.to_string())?;
+    // Сбрасываем иконку трея на idle если нет непрочитанных
+    let has_unread = storage::has_unread_messages(&db).unwrap_or(false);
+
+    // Ищем peer_key чата чтобы отправить read receipt
+    let peer_key = storage::get_chat_peer_key(&db, chat_id).ok().flatten();
+    drop(db);
+
+    if !has_unread {
+        if let Some(tray) = app.tray_by_id("main-tray") {
+            if let Ok(icon) = tauri::image::Image::from_bytes(TRAY_IDLE_PNG) {
+                tray.set_icon(Some(icon)).ok();
+            }
+        }
+    }
+
+    // Отправляем read receipt собеседнику (чтобы у него ✓✓ стало синим)
+    if let Some(peer_pk) = peer_key {
+        let id_guard = state.identity.lock().unwrap();
+        if let Some(ident) = id_guard.as_ref() {
+            let my_pk = ident.public_key.clone();
+            drop(id_guard);
+            let lan_guard = state.lan.lock().unwrap();
+            if let Some(lan) = lan_guard.as_ref() {
+                if lan.is_peer_online(&peer_pk) {
+                    let packet = network::make_read_receipt_packet(&my_pk, &peer_pk);
+                    lan.send_to_peer(&peer_pk, &packet).ok();
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn send_message(
+    recipient_pk: String,
+    text: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<i64, String> {
+    let kp_guard = state.keypair.lock().unwrap();
+    let kp = kp_guard.as_ref().ok_or("No keypair")?;
+    let id_guard = state.identity.lock().unwrap();
+    let ident = id_guard.as_ref().ok_or("No identity")?;
+
+    let encrypted = crypto::encrypt_message(kp, &recipient_pk, text.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().timestamp();
+
+    let db = state.db.0.lock().unwrap();
+    let chat_id = storage::get_or_create_direct_chat(&db, &recipient_pk)
+        .map_err(|e| e.to_string())?;
+
+    let content_json = serde_json::to_string(&encrypted).map_err(|e| e.to_string())?;
+    let msg = DbMessage {
+        id: 0,
+        chat_id,
+        sender_key: ident.public_key.clone(),
+        content: content_json,
+        content_type: "text".to_string(),
+        timestamp: now,
+        status: "sent".to_string(),
+        reply_to: None,
+        edited_at: None,
+        is_deleted: false,
+    };
+
+    // Сохраняем с текстовым превью для сайдбара (мы знаем plaintext)
+    let preview = format!("Вы: {}", &text[..text.len().min(80)]);
+    let msg_id = storage::save_message_with_preview(&db, &msg, &preview)
+        .map_err(|e| e.to_string())?;
+    drop(db);
+
+    // 1. Пробуем LAN (локальная сеть)
+    let sent = {
+        let lan_guard = state.lan.lock().unwrap();
+        if let Some(lan) = lan_guard.as_ref() {
+            if lan.is_peer_online(&recipient_pk) {
+                let packet = network::make_message_packet(&ident.public_key, &encrypted);
+                lan.send_to_peer(&recipient_pk, &packet).is_ok()
+            } else { false }
+        } else { false }
+    };
+
+    // 2. Пробуем P2P mesh (интернет/LAN через libp2p)
+    let sent = if !sent {
+        let p2p_guard = state.p2p.lock().unwrap();
+        if let Some(p2p) = p2p_guard.as_ref() {
+            if let Some(peer_id) = p2p.is_peer_online(&recipient_pk) {
+                let packet = network::make_message_packet(&ident.public_key, &encrypted);
+                let data = serde_json::to_vec(&packet).unwrap_or_default();
+                p2p.cmd_tx.try_send(p2p::P2pCmd::SendMessage { peer_id, data }).is_ok()
+            } else { false }
+        } else { false }
+    } else { true };
+
+    // 3. Fallback: Nostr relay DM (интернет, не требует прямого соединения)
+    if !sent {
+        let nostr_guard = state.nostr.lock().unwrap();
+        if let Some(n) = nostr_guard.as_ref() {
+            let enc_json = serde_json::to_string(&encrypted).unwrap_or_default();
+            n.cmd_tx.try_send(nostr::NostrCmd::SendDm {
+                recipient_soviet_pk: recipient_pk.clone(),
+                encrypted_json: enc_json,
+            }).ok();
+        }
+    }
+
+    app.emit("message-sent", serde_json::json!({ "chat_id": chat_id, "msg_id": msg_id })).ok();
+
+    Ok(msg_id)
+}
+
+#[tauri::command]
+fn decrypt_message_text(
+    encrypted_json: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let kp_guard = state.keypair.lock().unwrap();
+    let kp = kp_guard.as_ref().ok_or("No keypair")?;
+    let encrypted: crypto::EncryptedMessage = serde_json::from_str(&encrypted_json)
+        .map_err(|e| e.to_string())?;
+    let plaintext = crypto::decrypt_message(kp, &encrypted)
+        .map_err(|e| e.to_string())?;
+    String::from_utf8(plaintext).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn send_typing(
+    recipient_pk: String,
+    is_typing: bool,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let id_guard = state.identity.lock().unwrap();
+    let ident = id_guard.as_ref().ok_or("No identity")?;
+    let packet = network::make_typing_packet(&ident.public_key, is_typing);
+    drop(id_guard);
+
+    let lan_guard = state.lan.lock().unwrap();
+    if let Some(lan) = lan_guard.as_ref() {
+        if lan.is_peer_online(&recipient_pk) {
+            lan.send_to_peer(&recipient_pk, &packet).ok();
+        }
+    }
+    Ok(())
+}
+
+// ─── Commands — Settings / Status ────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize)]
+pub struct Settings {
+    pub nickname: String,
+    pub public_key: String,
+    pub status: String,
+    pub status_text: String,
+    pub lan_enabled: bool,
+    pub notify_sounds: bool,
+    pub theme: String,
+    pub avatar_data: String,
+    pub custom_id: String,
+}
+
+#[tauri::command]
+fn get_settings(state: State<AppState>) -> Result<Settings, String> {
+    let db = state.db.0.lock().unwrap();
+    let get = |k: &str| storage::get_setting(&db, k).ok().flatten().unwrap_or_default();
+    Ok(Settings {
+        nickname: get("nickname"),
+        public_key: get("public_key"),
+        status: get("status"),
+        status_text: get("status_text"),
+        lan_enabled: get("lan_enabled") != "false",
+        notify_sounds: get("notify_sounds") != "false",
+        theme: if get("theme").is_empty() { "system".to_string() } else { get("theme") },
+        avatar_data: get("avatar_data"),
+        custom_id: get("custom_id"),
+    })
+}
+
+#[tauri::command]
+fn save_settings(settings: Settings, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::set_setting(&db, "nickname", &settings.nickname).ok();
+    storage::set_setting(&db, "status", &settings.status).ok();
+    storage::set_setting(&db, "status_text", &settings.status_text).ok();
+    storage::set_setting(&db, "lan_enabled", if settings.lan_enabled { "true" } else { "false" }).ok();
+    storage::set_setting(&db, "notify_sounds", if settings.notify_sounds { "true" } else { "false" }).ok();
+    storage::set_setting(&db, "theme", &settings.theme).ok();
+    if !settings.avatar_data.is_empty() {
+        storage::set_setting(&db, "avatar_data", &settings.avatar_data).ok();
+    }
+    storage::set_setting(&db, "custom_id", &settings.custom_id).ok();
+    Ok(())
+}
+
+#[tauri::command]
+fn set_status(status: String, text: String, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::set_setting(&db, "status", &status).ok();
+    storage::set_setting(&db, "status_text", &text).ok();
+    Ok(())
+}
+
+// ─── Входящие LAN-пакеты ─────────────────────────────────────────────────────
+
+fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
+    match packet.packet_type.as_str() {
+        "message" => {
+            if let Ok(encrypted) = serde_json::from_value::<crypto::EncryptedMessage>(packet.payload.clone()) {
+                let state: tauri::State<AppState> = app.state();
+
+                // Игнорируем свои собственные сообщения
+                let my_pk = state.identity.lock().unwrap()
+                    .as_ref()
+                    .map(|i| i.public_key.clone())
+                    .unwrap_or_default();
+                if encrypted.sender_pk == my_pk { return; }
+
+                let db = state.db.0.lock().unwrap();
+
+                if let Ok(chat_id) = storage::get_or_create_direct_chat(&db, &encrypted.sender_pk) {
+                    // Расшифровываем для превью и уведомления
+                    let kp_guard = state.keypair.lock().unwrap();
+                    let preview = if let Some(kp) = kp_guard.as_ref() {
+                        crypto::decrypt_message(kp, &encrypted)
+                            .ok()
+                            .and_then(|b| String::from_utf8(b).ok())
+                            .unwrap_or_else(|| "[сообщение]".to_string())
+                    } else {
+                        "[сообщение]".to_string()
+                    };
+                    drop(kp_guard);
+
+                    let content_json = serde_json::to_string(&encrypted).unwrap_or_default();
+                    let msg = DbMessage {
+                        id: 0,
+                        chat_id,
+                        sender_key: encrypted.sender_pk.clone(),
+                        content: content_json,
+                        content_type: "text".to_string(),
+                        timestamp: encrypted.timestamp,
+                        status: "delivered".to_string(),
+                        reply_to: None,
+        edited_at: None,
+        is_deleted: false,
+                    };
+
+                    if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview) {
+                        storage::increment_unread(&db, chat_id).ok();
+                        drop(db);
+
+                        // Имя отправителя для уведомления
+                        let db2 = state.db.0.lock().unwrap();
+                        let sender_name = storage::get_contacts(&db2).unwrap_or_default()
+                            .into_iter()
+                            .find(|c| c.public_key == encrypted.sender_pk)
+                            .map(|c| c.local_alias.unwrap_or(c.nickname))
+                            .unwrap_or_else(|| "Неизвестный".to_string());
+                        drop(db2);
+
+                        let preview_short = if preview.len() > 100 {
+                            format!("{}...", &preview[..100])
+                        } else {
+                            preview.clone()
+                        };
+
+                        app.emit("new-message", serde_json::json!({
+                            "chat_id": chat_id,
+                            "msg_id": msg_id,
+                            "sender_pk": encrypted.sender_pk,
+                            "sender_name": sender_name,
+                            "preview": preview_short,
+                        })).ok();
+
+                        // Переключаем иконку трея на "медведь с конвертом"
+                        if let Some(tray) = app.tray_by_id("main-tray") {
+                            if let Ok(icon) = tauri::image::Image::from_bytes(TRAY_MSG_PNG) {
+                                tray.set_icon(Some(icon)).ok();
+                            }
+                        }
+                    } else {
+                        drop(db);
+                    }
+                }
+            }
+        }
+
+        "contact_request" => {
+            let pk = packet.payload.get("sender_pk")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let nickname = packet.payload.get("nickname")
+                .and_then(|v| v.as_str()).unwrap_or("Неизвестный").to_string();
+
+            if !pk.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                storage::save_contact_request(&db, &pk, &nickname, "incoming").ok();
+                drop(db);
+                app.emit("contact-request", serde_json::json!({
+                    "sender_pk": pk,
+                    "nickname": nickname,
+                })).ok();
+            }
+        }
+
+        "typing" => {
+            app.emit("typing", &packet.payload).ok();
+        }
+
+        "hello" => {
+            let pk = packet.payload.get("pk")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !pk.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                storage::update_contact_status(&db, &pk, "online", None).ok();
+                drop(db);
+                app.emit("contact-status", serde_json::json!({
+                    "pk": pk,
+                    "status": "online",
+                })).ok();
+            }
+        }
+
+        "group_invite" => {
+            let group_id = packet.payload.get("group_id")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let group_name = packet.payload.get("group_name")
+                .and_then(|v| v.as_str()).unwrap_or("Группа").to_string();
+            let sender_pk = packet.payload.get("sender_pk")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+            if !group_id.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                storage::create_group_chat(&db, &group_id, &group_name).ok();
+
+                // Добавляем участников из списка
+                if let Some(arr) = packet.payload.get("members").and_then(|v| v.as_array()) {
+                    let contacts = storage::get_contacts(&db).unwrap_or_default();
+                    let my_pk = state.identity.lock().unwrap()
+                        .as_ref().map(|i| i.public_key.clone()).unwrap_or_default();
+                    for pk_val in arr {
+                        if let Some(pk) = pk_val.as_str() {
+                            let nick = if pk == my_pk {
+                                state.identity.lock().unwrap()
+                                    .as_ref().map(|i| i.nickname.clone()).unwrap_or_default()
+                            } else {
+                                contacts.iter().find(|c| c.public_key == pk)
+                                    .map(|c| c.local_alias.clone().unwrap_or(c.nickname.clone()))
+                                    .unwrap_or_default()
+                            };
+                            storage::add_group_member(&db, &group_id, pk, &nick, pk == sender_pk).ok();
+                        }
+                    }
+                }
+                drop(db);
+
+                app.emit("group-invite", serde_json::json!({
+                    "group_id": group_id,
+                    "group_name": group_name,
+                    "sender_pk": sender_pk,
+                })).ok();
+            }
+        }
+
+        "group_message" => {
+            let group_id = packet.payload.get("group_id")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let sender_pk = packet.payload.get("sender_pk")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let content = packet.payload.get("content")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+            if !group_id.is_empty() && !sender_pk.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+
+                if let Ok(Some(chat_id)) = storage::get_group_chat_id(&db, &group_id) {
+                    // Расшифровываем
+                    let kp_guard = state.keypair.lock().unwrap();
+                    let plain = if let Some(kp) = kp_guard.as_ref() {
+                        if let Ok(enc) = serde_json::from_str::<crypto::EncryptedMessage>(&content) {
+                            crypto::decrypt_message(kp, &enc)
+                                .ok()
+                                .and_then(|b| String::from_utf8(b).ok())
+                                .unwrap_or_else(|| "[сообщение]".to_string())
+                        } else { content.clone() }
+                    } else { "[сообщение]".to_string() };
+                    drop(kp_guard);
+
+                    let members = storage::get_group_members(&db, &group_id).unwrap_or_default();
+                    let sender_name = members.iter()
+                        .find(|m| m.public_key == sender_pk)
+                        .map(|m| m.nickname.clone())
+                        .unwrap_or_else(|| sender_pk[..8.min(sender_pk.len())].to_string());
+
+                    let preview = format!("{}: {}", sender_name, &plain[..plain.len().min(60)]);
+                    let msg = storage::DbMessage {
+                        id: 0, chat_id,
+                        sender_key: sender_pk.clone(),
+                        content: plain.clone(),
+                        content_type: "text".to_string(),
+                        timestamp: chrono::Utc::now().timestamp(),
+                        status: "delivered".to_string(),
+                        reply_to: None,
+        edited_at: None,
+        is_deleted: false,
+                    };
+                    if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview) {
+                        storage::increment_unread(&db, chat_id).ok();
+                        drop(db);
+                        app.emit("group-message", serde_json::json!({
+                            "chat_id": chat_id,
+                            "msg_id": msg_id,
+                            "group_id": group_id,
+                            "sender_pk": sender_pk,
+                            "sender_name": sender_name,
+                            "preview": plain,
+                        })).ok();
+                    } else { drop(db); }
+                } else { drop(db); }
+            }
+        }
+
+        "read_receipt" => {
+            // Собеседник прочитал наши сообщения — ставим им статус "read"
+            let sender_pk = packet.payload.get("sender_pk")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !sender_pk.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                storage::mark_sent_messages_read(&db, &sender_pk).ok();
+                drop(db);
+                app.emit("read-receipt", serde_json::json!({ "peer_pk": sender_pk })).ok();
+            }
+        }
+
+        "member_left" => {
+            let sender_pk  = packet.payload.get("sender_pk").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let group_id   = packet.payload.get("group_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let nickname   = packet.payload.get("nickname").and_then(|v| v.as_str()).unwrap_or("участник").to_string();
+            if !group_id.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                storage::remove_group_member(&db, &group_id, &sender_pk).ok();
+                if let Ok(Some(cid)) = storage::get_group_chat_id(&db, &group_id) {
+                    let text = format!("{} покинул(а) чат", nickname);
+                    if let Ok(msg_id) = storage::save_system_message(&db, cid, &text) {
+                        drop(db);
+                        app.emit("group-message", serde_json::json!({
+                            "chat_id": cid, "msg_id": msg_id,
+                            "group_id": group_id, "sender_pk": sender_pk,
+                            "preview": text,
+                        })).ok();
+                    } else { drop(db); }
+                } else { drop(db); }
+            }
+        }
+
+        "group_dissolved" => {
+            let group_id = packet.payload.get("group_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !group_id.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                storage::delete_group(&db, &group_id).ok();
+                drop(db);
+                app.emit("group-dissolved", serde_json::json!({ "group_id": group_id })).ok();
+            }
+        }
+
+        "reaction" => {
+            let sender_pk = packet.payload.get("sender_pk").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let target_sender = packet.payload.get("target_sender").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let target_ts = packet.payload.get("target_ts").and_then(|v| v.as_i64()).unwrap_or(0);
+            let emoji = packet.payload.get("emoji").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let action = packet.payload.get("action").and_then(|v| v.as_str()).unwrap_or("add").to_string();
+            if !sender_pk.is_empty() && !emoji.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                if action == "add" {
+                    storage::add_reaction_by_key(&db, &target_sender, target_ts, &sender_pk, &emoji).ok();
+                } else {
+                    storage::remove_reaction_by_key(&db, &target_sender, target_ts, &sender_pk, &emoji).ok();
+                }
+                let msg_id = storage::find_message_id(&db, &target_sender, target_ts).ok().flatten();
+                drop(db);
+                if let Some(mid) = msg_id {
+                    app.emit("reaction-update", serde_json::json!({
+                        "message_id": mid, "sender_pk": sender_pk,
+                        "emoji": emoji, "action": action,
+                    })).ok();
+                }
+            }
+        }
+
+        "edit_message" => {
+            let sender_pk = packet.payload.get("sender_pk").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let timestamp = packet.payload.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+            let new_content = packet.payload.get("new_content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !sender_pk.is_empty() && timestamp > 0 {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                storage::edit_message_by_key(&db, &sender_pk, timestamp, &new_content).ok();
+                let msg_id = storage::find_message_id(&db, &sender_pk, timestamp).ok().flatten();
+                drop(db);
+                if let Some(mid) = msg_id {
+                    app.emit("message-edited", serde_json::json!({
+                        "message_id": mid, "new_content": new_content,
+                    })).ok();
+                }
+            }
+        }
+
+        "delete_message" => {
+            let sender_pk = packet.payload.get("sender_pk").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let timestamp = packet.payload.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+            if !sender_pk.is_empty() && timestamp > 0 {
+                let state: tauri::State<AppState> = app.state();
+                let db = state.db.0.lock().unwrap();
+                let msg_id = storage::find_message_id(&db, &sender_pk, timestamp).ok().flatten();
+                if let Some(mid) = msg_id {
+                    storage::delete_message(&db, mid).ok();
+                }
+                drop(db);
+                if let Some(mid) = msg_id {
+                    app.emit("message-deleted", serde_json::json!({ "message_id": mid })).ok();
+                }
+            }
+        }
+
+        _ => {}
+    }
+}
+
+// ─── Commands — File Transfer ────────────────────────────────────────────────
+
+#[tauri::command]
+fn send_file(
+    recipient_pk: String,
+    file_name: String,
+    mime_type: String,
+    data_base64: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<i64, String> {
+    let kp_guard = state.keypair.lock().unwrap();
+    let kp = kp_guard.as_ref().ok_or("No keypair")?;
+    let id_guard = state.identity.lock().unwrap();
+    let ident = id_guard.as_ref().ok_or("No identity")?;
+    let my_pk = ident.public_key.clone();
+    drop(id_guard);
+
+    // Payload: JSON с именем файла и данными
+    let payload = serde_json::json!({
+        "file_name": file_name,
+        "mime_type": mime_type,
+        "data": data_base64,
+    }).to_string();
+
+    let encrypted = crypto::encrypt_message(kp, &recipient_pk, payload.as_bytes())
+        .map_err(|e| e.to_string())?;
+    drop(kp_guard);
+
+    let content_type = if mime_type.starts_with("image/") { "image" } else { "file" };
+    let db = state.db.0.lock().unwrap();
+    let chat_id = storage::get_or_create_direct_chat(&db, &recipient_pk)
+        .map_err(|e| e.to_string())?;
+    let content_json = serde_json::to_string(&encrypted).map_err(|e| e.to_string())?;
+    let preview = format!("Вы: 📎 {}", file_name);
+    let msg = DbMessage {
+        id: 0, chat_id,
+        sender_key: my_pk.clone(),
+        content: content_json,
+        content_type: content_type.to_string(),
+        timestamp: chrono::Utc::now().timestamp(),
+        status: "sent".to_string(),
+        reply_to: None,
+        edited_at: None,
+        is_deleted: false,
+    };
+    let msg_id = storage::save_message_with_preview(&db, &msg, &preview)
+        .map_err(|e| e.to_string())?;
+    drop(db);
+
+    // Отправляем по LAN
+    let lan_guard = state.lan.lock().unwrap();
+    if let Some(lan) = lan_guard.as_ref() {
+        if lan.is_peer_online(&recipient_pk) {
+            let packet = network::make_message_packet(&my_pk, &encrypted);
+            lan.send_to_peer(&recipient_pk, &packet).ok();
+        }
+    }
+
+    app.emit("message-sent", serde_json::json!({ "chat_id": chat_id, "msg_id": msg_id })).ok();
+    Ok(msg_id)
+}
+
+// ─── Commands — Group Chats ──────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize)]
+pub struct CreateGroupArgs {
+    pub name: String,
+    pub member_pks: Vec<String>,
+}
+
+#[tauri::command]
+fn create_group(
+    name: String,
+    member_pks: Vec<String>,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let group_id = uuid::Uuid::new_v4().to_string();
+    let db = state.db.0.lock().unwrap();
+    storage::create_group_chat(&db, &group_id, &name).map_err(|e| e.to_string())?;
+
+    // Добавляем себя как admin
+    let my_pk = state.identity.lock().unwrap()
+        .as_ref().map(|i| i.public_key.clone()).unwrap_or_default();
+    let my_nick = state.identity.lock().unwrap()
+        .as_ref().map(|i| i.nickname.clone()).unwrap_or_default();
+    storage::add_group_member(&db, &group_id, &my_pk, &my_nick, true).map_err(|e| e.to_string())?;
+
+    // Добавляем остальных участников
+    let contacts = storage::get_contacts(&db).unwrap_or_default();
+    let mut all_pks = vec![my_pk.clone()];
+    for pk in &member_pks {
+        let nick = contacts.iter().find(|c| &c.public_key == pk)
+            .map(|c| c.local_alias.clone().unwrap_or(c.nickname.clone()))
+            .unwrap_or_default();
+        storage::add_group_member(&db, &group_id, pk, &nick, false).map_err(|e| e.to_string())?;
+        all_pks.push(pk.clone());
+    }
+    drop(db);
+
+    // Рассылаем приглашение онлайн-участникам
+    let lan_guard = state.lan.lock().unwrap();
+    if let Some(lan) = lan_guard.as_ref() {
+        let packet = network::make_group_invite_packet(&my_pk, &group_id, &name, &all_pks);
+        for pk in &member_pks {
+            if lan.is_peer_online(pk) {
+                lan.send_to_peer(pk, &packet).ok();
+            }
+        }
+    }
+
+    Ok(group_id)
+}
+
+#[tauri::command]
+fn get_group_members(group_id: String, state: State<AppState>) -> Result<Vec<storage::GroupMember>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::get_group_members(&db, &group_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn send_group_message(
+    group_id: String,
+    text: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    let members = storage::get_group_members(&db, &group_id).map_err(|e| e.to_string())?;
+    let chat_id = storage::get_group_chat_id(&db, &group_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Group chat not found")?;
+
+    let my_pk = state.identity.lock().unwrap()
+        .as_ref().map(|i| i.public_key.clone()).unwrap_or_default();
+
+    let preview = format!("Вы: {}", &text[..text.len().min(80)]);
+    let msg = storage::DbMessage {
+        id: 0,
+        chat_id,
+        sender_key: my_pk.clone(),
+        content: text.clone(),
+        content_type: "text".to_string(),
+        timestamp: chrono::Utc::now().timestamp(),
+        status: "sent".to_string(),
+        reply_to: None,
+        edited_at: None,
+        is_deleted: false,
+    };
+    storage::save_message_with_preview(&db, &msg, &preview).map_err(|e| e.to_string())?;
+    drop(db);
+
+    // Шлём каждому участнику зашифрованно
+    let lan_guard = state.lan.lock().unwrap();
+    if let Some(lan) = lan_guard.as_ref() {
+        let kp2 = state.keypair.lock().unwrap();
+        if let Some(kp) = kp2.as_ref() {
+            for m in &members {
+                if m.public_key == my_pk { continue; }
+                if lan.is_peer_online(&m.public_key) {
+                    if let Ok(enc) = crypto::encrypt_message(kp, &m.public_key, text.as_bytes()) {
+                        let enc_json = serde_json::to_string(&enc).unwrap_or_default();
+                        let packet = network::make_group_message_packet(&my_pk, &group_id, &enc_json);
+                        lan.send_to_peer(&m.public_key, &packet).ok();
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ─── Commands — Group Management ─────────────────────────────────────────────
+
+#[tauri::command]
+fn leave_group(group_id: String, state: State<AppState>, app: AppHandle) -> Result<(), String> {
+    let my_pk  = state.identity.lock().unwrap().as_ref().map(|i| i.public_key.clone()).ok_or("No identity")?;
+    let my_nick = state.identity.lock().unwrap().as_ref().map(|i| i.nickname.clone()).unwrap_or_default();
+    let (members, chat_id) = {
+        let db = state.db.0.lock().unwrap();
+        let members  = storage::get_group_members(&db, &group_id).unwrap_or_default();
+        let chat_id  = storage::get_group_chat_id(&db, &group_id).ok().flatten();
+        if let Some(cid) = chat_id {
+            storage::save_system_message(&db, cid, &format!("{} покинул(а) чат", my_nick)).ok();
+        }
+        storage::remove_group_member(&db, &group_id, &my_pk).map_err(|e| e.to_string())?;
+        (members, chat_id)
+    };
+    let lan_guard = state.lan.lock().unwrap();
+    if let Some(lan) = lan_guard.as_ref() {
+        let pkt = network::make_member_left_packet(&my_pk, &group_id, &my_nick);
+        for m in &members {
+            if m.public_key != my_pk && lan.is_peer_online(&m.public_key) {
+                lan.send_to_peer(&m.public_key, &pkt).ok();
+            }
+        }
+    }
+    app.emit("group-left", serde_json::json!({ "group_id": group_id, "chat_id": chat_id })).ok();
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_group(group_id: String, state: State<AppState>, app: AppHandle) -> Result<(), String> {
+    let my_pk = state.identity.lock().unwrap().as_ref().map(|i| i.public_key.clone()).ok_or("No identity")?;
+    let members = {
+        let db = state.db.0.lock().unwrap();
+        let members = storage::get_group_members(&db, &group_id).unwrap_or_default();
+        if !members.iter().any(|m| m.public_key == my_pk && m.is_admin) {
+            return Err("Not group admin".into());
+        }
+        storage::delete_group(&db, &group_id).map_err(|e| e.to_string())?;
+        members
+    };
+    let lan_guard = state.lan.lock().unwrap();
+    if let Some(lan) = lan_guard.as_ref() {
+        let pkt = network::make_group_dissolved_packet(&my_pk, &group_id);
+        for m in &members {
+            if m.public_key != my_pk && lan.is_peer_online(&m.public_key) {
+                lan.send_to_peer(&m.public_key, &pkt).ok();
+            }
+        }
+    }
+    app.emit("group-dissolved", serde_json::json!({ "group_id": group_id })).ok();
+    Ok(())
+}
+
+// ─── Commands — Reactions / Edit / Delete ────────────────────────────────────
+
+#[tauri::command]
+fn get_reactions(chat_id: i64, state: State<AppState>) -> Result<Vec<storage::MessageReaction>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::get_reactions(&db, chat_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn add_reaction_cmd(
+    msg_id: i64,
+    chat_id: i64,
+    emoji: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let my_pk = state.identity.lock().unwrap().as_ref().map(|i| i.public_key.clone()).ok_or("No identity")?;
+    let (peer_key, msg_ts, msg_sender) = {
+        let db = state.db.0.lock().unwrap();
+        storage::add_reaction(&db, msg_id, &my_pk, &emoji).map_err(|e| e.to_string())?;
+        let peer_key = storage::get_chat_peer_key(&db, chat_id).ok().flatten();
+        let msg = storage::get_message_by_id(&db, msg_id).ok().flatten();
+        (peer_key, msg.as_ref().map(|m| m.timestamp), msg.map(|m| m.sender_key))
+    };
+    app.emit("reaction-update", serde_json::json!({
+        "message_id": msg_id, "sender_pk": my_pk, "emoji": emoji, "action": "add",
+    })).ok();
+    if let (Some(peer), Some(ts), Some(sender)) = (peer_key, msg_ts, msg_sender) {
+        let lan_guard = state.lan.lock().unwrap();
+        if let Some(lan) = lan_guard.as_ref() {
+            if lan.is_peer_online(&peer) {
+                let packet = network::make_reaction_packet(&my_pk, &sender, ts, &emoji, "add");
+                lan.send_to_peer(&peer, &packet).ok();
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_reaction_cmd(
+    msg_id: i64,
+    chat_id: i64,
+    emoji: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let my_pk = state.identity.lock().unwrap().as_ref().map(|i| i.public_key.clone()).ok_or("No identity")?;
+    let (peer_key, msg_ts, msg_sender) = {
+        let db = state.db.0.lock().unwrap();
+        storage::remove_reaction(&db, msg_id, &my_pk, &emoji).map_err(|e| e.to_string())?;
+        let peer_key = storage::get_chat_peer_key(&db, chat_id).ok().flatten();
+        let msg = storage::get_message_by_id(&db, msg_id).ok().flatten();
+        (peer_key, msg.as_ref().map(|m| m.timestamp), msg.map(|m| m.sender_key))
+    };
+    app.emit("reaction-update", serde_json::json!({
+        "message_id": msg_id, "sender_pk": my_pk, "emoji": emoji, "action": "remove",
+    })).ok();
+    if let (Some(peer), Some(ts), Some(sender)) = (peer_key, msg_ts, msg_sender) {
+        let lan_guard = state.lan.lock().unwrap();
+        if let Some(lan) = lan_guard.as_ref() {
+            if lan.is_peer_online(&peer) {
+                let packet = network::make_reaction_packet(&my_pk, &sender, ts, &emoji, "remove");
+                lan.send_to_peer(&peer, &packet).ok();
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn edit_message_cmd(
+    msg_id: i64,
+    chat_id: i64,
+    new_text: String,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let my_pk = state.identity.lock().unwrap().as_ref().map(|i| i.public_key.clone()).ok_or("No identity")?;
+    let (peer_key, msg_ts) = {
+        let db = state.db.0.lock().unwrap();
+        let msg = storage::get_message_by_id(&db, msg_id).ok().flatten().ok_or("Message not found")?;
+        if msg.sender_key != my_pk { return Err("Not your message".into()); }
+        storage::edit_message(&db, msg_id, &new_text).map_err(|e| e.to_string())?;
+        let peer_key = storage::get_chat_peer_key(&db, chat_id).ok().flatten();
+        (peer_key, msg.timestamp)
+    };
+    app.emit("message-edited", serde_json::json!({ "message_id": msg_id, "new_content": new_text })).ok();
+    if let Some(peer) = peer_key {
+        let lan_guard = state.lan.lock().unwrap();
+        if let Some(lan) = lan_guard.as_ref() {
+            if lan.is_peer_online(&peer) {
+                let packet = network::make_edit_packet(&my_pk, msg_ts, &new_text);
+                lan.send_to_peer(&peer, &packet).ok();
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_message_cmd(
+    msg_id: i64,
+    chat_id: i64,
+    state: State<AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let my_pk = state.identity.lock().unwrap().as_ref().map(|i| i.public_key.clone()).ok_or("No identity")?;
+    let (peer_key, msg_ts) = {
+        let db = state.db.0.lock().unwrap();
+        let msg = storage::get_message_by_id(&db, msg_id).ok().flatten().ok_or("Message not found")?;
+        if msg.sender_key != my_pk { return Err("Not your message".into()); }
+        storage::delete_message(&db, msg_id).map_err(|e| e.to_string())?;
+        let peer_key = storage::get_chat_peer_key(&db, chat_id).ok().flatten();
+        (peer_key, msg.timestamp)
+    };
+    app.emit("message-deleted", serde_json::json!({ "message_id": msg_id })).ok();
+    if let Some(peer) = peer_key {
+        let lan_guard = state.lan.lock().unwrap();
+        if let Some(lan) = lan_guard.as_ref() {
+            if lan.is_peer_online(&peer) {
+                let packet = network::make_delete_packet(&my_pk, msg_ts);
+                lan.send_to_peer(&peer, &packet).ok();
+            }
+        }
+    }
+    Ok(())
+}
+
+// ─── Commands — Nostr Channels ───────────────────────────────────────────────
+
+#[tauri::command]
+fn nostr_get_pubkey(state: State<AppState>) -> String {
+    state.nostr.lock().unwrap()
+        .as_ref()
+        .map(|n| n.pubkey_hex.clone())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn nostr_get_channels(state: State<AppState>) -> Result<Vec<storage::NostrChannelRow>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::nostr_get_channels(&db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn nostr_get_messages(channel_id: String, limit: Option<i64>, state: State<AppState>) -> Result<Vec<storage::NostrMessageRow>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::nostr_get_messages(&db, &channel_id, limit.unwrap_or(100))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn nostr_create_channel(name: String, about: String, state: State<'_, AppState>) -> Result<String, String> {
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    let name_clone = name.clone();
+    let about_clone = about.clone();
+    // Extract cmd_tx BEFORE any await to avoid holding MutexGuard across await points
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().ok_or("Nostr not ready")?.cmd_tx.clone()
+    };
+    cmd_tx.send(nostr::NostrCmd::CreateChannel { name, about, reply_tx })
+        .await.map_err(|e| e.to_string())?;
+    let channel_id = reply_rx.await.map_err(|e| e.to_string())??;
+
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_join_channel(&db, &channel_id, "").map_err(|e| e.to_string())?;
+        // Mark ourselves as creator immediately
+        let my_pk = state.nostr.lock().unwrap()
+            .as_ref().map(|n| n.pubkey_hex.clone()).unwrap_or_default();
+        if !my_pk.is_empty() {
+            storage::nostr_update_channel_meta(&db, &channel_id, &name_clone, &about_clone, "", &my_pk).ok();
+        }
+    }
+    let cmd_tx2 = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().map(|n| n.cmd_tx.clone())
+    };
+    if let Some(tx) = cmd_tx2 {
+        let _ = tx.send(nostr::NostrCmd::JoinChannel { channel_id: channel_id.clone() }).await;
+    }
+    Ok(channel_id)
+}
+
+#[tauri::command]
+async fn nostr_join_channel(channel_id: String, relay: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
+    let relay = relay.unwrap_or_default();
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_join_channel(&db, &channel_id, &relay).map_err(|e| e.to_string())?;
+    }
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().map(|n| n.cmd_tx.clone())
+    };
+    if let Some(tx) = cmd_tx {
+        let _ = tx.send(nostr::NostrCmd::JoinChannel { channel_id }).await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn nostr_leave_channel(channel_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_leave_channel(&db, &channel_id).map_err(|e| e.to_string())?;
+    }
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().map(|n| n.cmd_tx.clone())
+    };
+    if let Some(tx) = cmd_tx {
+        let _ = tx.send(nostr::NostrCmd::LeaveChannel { channel_id }).await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn nostr_send_channel_message(
+    channel_id: String,
+    content: String,
+    reply_to: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let relay = DEFAULT_RELAY.to_string();
+    let (cmd_tx, my_pk) = {
+        let guard = state.nostr.lock().unwrap();
+        let n = guard.as_ref().ok_or("Nostr not ready")?;
+        (n.cmd_tx.clone(), n.pubkey_hex.clone())
+    };
+    cmd_tx.send(nostr::NostrCmd::SendMessage {
+        channel_id: channel_id.clone(),
+        relay,
+        content: content.clone(),
+        reply_to: reply_to.clone(),
+    }).await.map_err(|e| e.to_string())?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let temp_event_id = format!("local_{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
+    let db = state.db.0.lock().unwrap();
+    storage::nostr_save_message(
+        &db,
+        &temp_event_id,
+        &channel_id,
+        &my_pk,
+        &content,
+        timestamp,
+        reply_to.as_deref(),
+        true,
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn nostr_mark_channel_read(channel_id: String, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::nostr_mark_channel_read(&db, &channel_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn nostr_update_channel_meta(
+    channel_id: String,
+    name: String,
+    about: String,
+    picture: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_update_channel_meta_info(&db, &channel_id, &name, &about, &picture)
+            .map_err(|e| e.to_string())?;
+    }
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().ok_or("Nostr not ready")?.cmd_tx.clone()
+    };
+    cmd_tx.send(nostr::NostrCmd::UpdateChannelMeta { channel_id, name, about, picture })
+        .await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_chat(chat_id: i64, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::delete_direct_chat(&db, chat_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn nostr_delete_channel_cmd(
+    channel_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_delete_channel(&db, &channel_id).map_err(|e| e.to_string())?;
+    }
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().ok_or("Nostr not ready")?.cmd_tx.clone()
+    };
+    cmd_tx.send(nostr::NostrCmd::DeleteChannel { channel_id })
+        .await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn nostr_get_subscriber_count(channel_id: String, state: State<AppState>) -> i64 {
+    let db = state.db.0.lock().unwrap();
+    storage::nostr_get_subscriber_count(&db, &channel_id).unwrap_or(0)
+}
+
+#[tauri::command]
+fn get_p2p_peers(state: State<AppState>) -> Vec<p2p::P2pPeer> {
+    let p2p_guard = state.p2p.lock().unwrap();
+    match p2p_guard.as_ref() {
+        Some(p2p) => p2p.get_peers(),
+        None => vec![],
+    }
+}
+
+#[tauri::command]
+fn sign_out(state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::set_setting(&db, "nickname", "").map_err(|e| e.to_string())?;
+    *state.identity.lock().unwrap() = None;
+    *state.keypair.lock().unwrap() = None;
+    Ok(())
+}
+
+// ─── Точка входа ─────────────────────────────────────────────────────────────
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            // 1. Открываем БД
+            let data_dir = app.path().app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            std::fs::create_dir_all(&data_dir).ok();
+            let db_path = data_dir.join("sovietmsg.db");
+            let conn = storage::open(db_path.to_str().unwrap_or("sovietmsg.db"))
+                .expect("Cannot open database");
+
+            // 2. Загружаем сохранённую идентичность
+            let nickname = storage::get_setting(&conn, "nickname")
+                .ok().flatten().unwrap_or_default();
+            let (loaded_identity, loaded_keypair) = if !nickname.is_empty() {
+                match identity::load_identity(&nickname) {
+                    Ok(Some((id, kp))) => (Some(id), Some(kp)),
+                    _ => (None, None),
+                }
+            } else {
+                (None, None)
+            };
+
+            // 3. Создаём канал для входящих LAN-пакетов
+            let (tx, mut rx) = mpsc::unbounded_channel::<(String, LanPacket)>();
+
+            // 3b. Initialize Nostr keys and channels
+            let (n_secret, n_pubkey) = match storage::nostr_get_keys(&conn) {
+                Ok(Some(keys)) => keys,
+                _ => {
+                    let (s, p) = nostr::generate_keys();
+                    storage::nostr_save_keys(&conn, &s, &p).ok();
+                    (s, p)
+                }
+            };
+            let n_channel_ids: Vec<String> = storage::nostr_get_channels(&conn)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|c| c.channel_id)
+                .collect();
+
+            // Soviet pubkey for Nostr DM subscription (empty if no identity yet)
+            let n_soviet_pk = loaded_identity.as_ref()
+                .map(|id| id.public_key.clone())
+                .unwrap_or_default();
+            // Snapshot private key bytes before moving keypair into AppState
+            let p2p_sk = loaded_keypair.as_ref().map(|kp| kp.private_key_bytes());
+
+            // Open a second DB connection for Nostr (runs in separate thread)
+            let n_db = Arc::new(std::sync::Mutex::new(
+                storage::open(db_path.to_str().unwrap_or("sovietmsg.db"))
+                    .expect("Cannot open nostr db connection")
+            ));
+            let nostr_handle = nostr::start(
+                n_secret,
+                n_pubkey,
+                n_soviet_pk,
+                n_channel_ids,
+                app.handle().clone(),
+                n_db,
+            );
+
+            // 4. СНАЧАЛА регистрируем состояние (чтобы обработчик мог его использовать)
+            app.manage(AppState {
+                db: Db(std::sync::Mutex::new(conn)),
+                keypair: Mutex::new(loaded_keypair),
+                identity: Mutex::new(loaded_identity.clone()),
+                lan: Mutex::new(None),
+                lan_tx: tx.clone(),
+                nostr: Mutex::new(Some(nostr_handle)),
+                p2p: Mutex::new(None),
+            });
+
+            // 5. Запускаем LAN если есть идентичность
+            if let Some(ref id) = loaded_identity {
+                let state: tauri::State<AppState> = app.state();
+                let l = LanNetwork::new(id.public_key.clone(), id.nickname.clone(), tx.clone());
+                l.start().ok();
+                *state.lan.lock().unwrap() = Some(l);
+            }
+
+            // 5b. Запускаем P2P mesh если есть keypair
+            if let Some(sk_bytes) = p2p_sk {
+                let app_h = app.handle().clone();
+                match p2p::start(sk_bytes, tx, app_h) {
+                    Ok(handle) => {
+                        let state: tauri::State<AppState> = app.state();
+                        *state.p2p.lock().unwrap() = Some(handle);
+                    }
+                    Err(e) => log::error!("P2P init error: {}", e),
+                }
+            }
+
+            // 6. Запускаем обработчик входящих пакетов в отдельном потоке
+            let app_handler = app.handle().clone();
+            std::thread::spawn(move || {
+                while let Some((_sender_pk, packet)) = rx.blocking_recv() {
+                    handle_lan_packet(&app_handler, packet);
+                }
+            });
+
+            // 7. Глобальный обработчик событий меню (fallback)
+            app.on_menu_event(|app, event| {
+                handle_tray_menu(app, event.id().as_ref());
+            });
+
+            // 8. Системный трей
+            setup_tray(app)?;
+
+            // 9. Показываем окно + перехватываем крестик (скрывать в трей вместо закрытия)
+            if let Some(window) = app.get_webview_window("main") {
+                window.show().ok();
+                window.set_focus().ok();
+
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        if let Some(w) = app_handle.get_webview_window("main") {
+                            w.hide().ok();
+                        }
+                    }
+                });
+            }
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_identity,
+            create_identity,
+            export_keys,
+            import_keys,
+            get_contacts,
+            add_contact,
+            delete_contact,
+            update_contact,
+            get_lan_peers,
+            get_safety_number,
+            get_contact_requests,
+            accept_contact_request,
+            reject_contact_request,
+            send_contact_request,
+            get_chats,
+            get_messages,
+            mark_read,
+            send_message,
+            decrypt_message_text,
+            send_typing,
+            get_settings,
+            save_settings,
+            set_status,
+            send_file,
+            create_group,
+            get_group_members,
+            send_group_message,
+            leave_group,
+            delete_group,
+            get_reactions,
+            add_reaction_cmd,
+            remove_reaction_cmd,
+            edit_message_cmd,
+            delete_message_cmd,
+            nostr_get_pubkey,
+            nostr_get_channels,
+            nostr_get_messages,
+            nostr_create_channel,
+            nostr_join_channel,
+            nostr_leave_channel,
+            nostr_send_channel_message,
+            nostr_mark_channel_read,
+            nostr_update_channel_meta,
+            delete_chat,
+            nostr_delete_channel_cmd,
+            nostr_get_subscriber_count,
+            get_p2p_peers,
+            sign_out,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running Soviet");
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        w.show().ok();
+        w.set_focus().ok();
+        return;
+    }
+    for (_, w) in app.webview_windows() {
+        w.show().ok();
+        w.set_focus().ok();
+        return;
+    }
+}
+
+/// Выполнить JS в главном окне — надёжнее emit когда окно было скрыто
+fn eval_in_window(app: &AppHandle, js: &str) {
+    if let Some(w) = app.get_webview_window("main") {
+        w.eval(js).ok();
+    }
+}
+
+fn handle_tray_menu(app: &AppHandle, id: &str) {
+    match id {
+        "open" => {
+            show_main_window(app);
+        }
+        "quit" => app.exit(0),
+        "settings" => {
+            show_main_window(app);
+            let app2 = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                eval_in_window(&app2, "window.__trayNavigate && window.__trayNavigate('settings')");
+                app2.emit("navigate", "settings").ok();
+            });
+        }
+        "status_online" => {
+            eval_in_window(app, "window.__trayStatus && window.__trayStatus('online')");
+            app.emit("tray-status-change", "online").ok();
+        }
+        "status_away" => {
+            eval_in_window(app, "window.__trayStatus && window.__trayStatus('away')");
+            app.emit("tray-status-change", "away").ok();
+        }
+        "status_busy" => {
+            eval_in_window(app, "window.__trayStatus && window.__trayStatus('busy')");
+            app.emit("tray-status-change", "busy").ok();
+        }
+        "status_invis" => {
+            eval_in_window(app, "window.__trayStatus && window.__trayStatus('offline')");
+            app.emit("tray-status-change", "offline").ok();
+        }
+        _ => {}
+    }
+}
+
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let open_item     = MenuItemBuilder::with_id("open",         "Открыть Soviet").build(app)?;
+    let sep           = PredefinedMenuItem::separator(app)?;
+    let status_online = MenuItemBuilder::with_id("status_online","🟢 Онлайн").build(app)?;
+    let status_away   = MenuItemBuilder::with_id("status_away",  "🟡 Отошёл").build(app)?;
+    let status_busy   = MenuItemBuilder::with_id("status_busy",  "🔴 Занят").build(app)?;
+    let status_invis  = MenuItemBuilder::with_id("status_invis", "⚫ Невидимка").build(app)?;
+    let sep2          = PredefinedMenuItem::separator(app)?;
+    let settings_item = MenuItemBuilder::with_id("settings",     "⚙ Настройки").build(app)?;
+    let sep3          = PredefinedMenuItem::separator(app)?;
+    let quit_item     = MenuItemBuilder::with_id("quit",         "✕ Выход").build(app)?;
+
+    let menu = MenuBuilder::new(app)
+        .item(&open_item)
+        .item(&sep)
+        .item(&status_online)
+        .item(&status_away)
+        .item(&status_busy)
+        .item(&status_invis)
+        .item(&sep2)
+        .item(&settings_item)
+        .item(&sep3)
+        .item(&quit_item)
+        .build()?;
+
+    let tray_icon = tauri::image::Image::from_bytes(TRAY_IDLE_PNG)
+        .map_err(|e| tauri::Error::Anyhow(e.into()))?;
+
+    let tray = TrayIconBuilder::with_id("main-tray")
+        .menu(&menu)
+        .tooltip("Soviet")
+        .icon(tray_icon)
+        .on_menu_event(|app, event| {
+            handle_tray_menu(app, event.id().as_ref());
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event {
+                let app = tray.app_handle();
+                // Левый клик — показать/скрыть окно
+                if let Some(w) = app.get_webview_window("main") {
+                    if w.is_visible().unwrap_or(false) {
+                        w.hide().ok();
+                    } else {
+                        w.show().ok();
+                        w.set_focus().ok();
+                    }
+                } else {
+                    show_main_window(app);
+                }
+            }
+        })
+        .build(app)?;
+
+    // Предотвращаем дроп TrayIcon — иначе Tauri отключает event-хэндлеры
+    std::mem::forget(tray);
+
+    Ok(())
+}

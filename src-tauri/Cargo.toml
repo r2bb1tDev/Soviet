@@ -1,0 +1,79 @@
+[package]
+name = "sovietmsg"
+version = "1.1.0"
+description = "Soviet — decentralized messenger"
+authors = ["Soviet Contributors"]
+edition = "2021"
+
+[lib]
+name = "sovietmsg_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.1", features = ["tray-icon", "image-ico", "image-png"] }
+tauri-plugin-notification = "2.0"
+tauri-plugin-shell = "2.0"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
+# Сериализация
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Криптография (Ed25519, X25519, ChaCha20-Poly1305)
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+
+# Base58 кодирование публичных ключей
+bs58 = "0.5"
+
+# База данных
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Сеть — LAN UDP broadcast и TCP
+tokio = { version = "1", features = ["full"] }
+socket2 = "0.5"
+
+# UUID для message_id
+uuid = { version = "1", features = ["v4"] }
+
+# Хранение ключей в системном хранилище ОС
+keyring = "2"
+
+# Время
+chrono = { version = "0.4", features = ["serde"] }
+
+# Логи
+log = "0.4"
+env_logger = "0.11"
+
+# Обработка ошибок
+anyhow = "1"
+
+# P2P mesh-сеть
+libp2p = { version = "0.53", features = [
+    "tokio", "macros",
+    "tcp", "quic", "noise", "yamux",
+    "mdns", "kad", "identify", "ping",
+    "request-response", "cbor", "ed25519",
+] }
+
+# Nostr protocol
+secp256k1 = { version = "0.28", features = ["rand"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+hex = "0.4"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
