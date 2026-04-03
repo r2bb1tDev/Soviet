@@ -13,8 +13,8 @@
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
     <img src="https://img.shields.io/badge/скачать-v1.1.0-blue" alt="Download"/>
   </a>
-  <img src="https://img.shields.io/badge/платформы-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/лицензия-MIT-green"/></a>
+  <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
 </p>
 
 ---
