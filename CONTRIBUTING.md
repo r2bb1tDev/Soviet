@@ -358,7 +358,7 @@ npx vitest
 ## 🆘 Вопросы?
 
 - **GitHub Discussions:** https://github.com/r2bb1tDev/Soviet/discussions
-- **Email:** r2bb1t.Dev@gmail.com[to-be-configured]
+- **Email:** r2bb1t.Dev@gmail.com
 - **Issues:** https://github.com/r2bb1tDev/Soviet/issues
 
 ---
