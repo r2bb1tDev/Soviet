@@ -10,6 +10,7 @@ src-tauri/.omc/
 # Rust / Tauri
 src-tauri/target/
 src-tauri/gen/
+keygen_helper/target/
 
 # Logs
 *.log

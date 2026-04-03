@@ -6,10 +6,11 @@
 
 ## Обзор
 
-Soviet Messenger использует **два независимых протокола**:
+Soviet Messenger использует **три независимых транспорта**, выбираемых автоматически:
 
-1. **LAN Protocol** — UDP broadcast + TCP direct для локальной сети
-2. **Nostr Protocol** — WebSocket relay для публичных каналов
+1. **LAN Protocol** — mDNS + TCP direct для локальной сети (без интернета)
+2. **P2P mesh Protocol** — libp2p Kademlia DHT для связи через интернет
+3. **Nostr Protocol** — WebSocket relay для публичных каналов и DM-fallback
 
 ---
 
@@ -248,7 +249,55 @@ Soviet Messenger использует **два независимых прото
 
 ---
 
-## Часть 2: Nostr Protocol
+## Часть 2: P2P mesh Protocol (libp2p)
+
+### Транспорт
+
+- **TCP + QUIC** — зашифрованные соединения через интернет
+- **Noise protocol** — аутентификация транспортного уровня
+- **Yamux** — мультиплексирование потоков
+- **Сериализация сообщений** — CBOR
+
+### Протоколы libp2p
+
+| Протокол | ID | Назначение |
+|----------|----|-----------|
+| Сообщения | `/soviet/msg/1.0.0` | Передача `LanPacket` JSON между пирами |
+| Kademlia DHT | `/soviet/kad/1.0.0` | Маршрутизация и поиск пиров в интернете |
+| Identify | `/soviet/id/1.0.0` | Обмен адресами и метаданными пира |
+| mDNS | (системный) | Обнаружение пиров в локальной сети |
+| Ping | (системный) | Keepalive |
+
+### PeerId
+
+PeerId libp2p генерируется детерминированно из Soviet Ed25519 ключа:
+
+```
+PeerId = SHA256-multihash(Ed25519 PublicKey bytes)
+```
+
+Зная Soviet pubkey контакта, можно вычислить его PeerId без дополнительного обмена.
+
+### Формат сообщения
+
+Сообщения передаются как `LanPacket` JSON (тот же формат, что и в LAN-режиме), сериализованный в CBOR:
+
+```
+[CBOR bytes] → RequestResponse → получатель декодирует в LanPacket → обрабатывается тем же pipeline
+```
+
+### Bootstrap DHT
+
+Начальная связность через публичные IPFS bootstrap-ноды:
+
+```
+/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN
+/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa
+```
+
+---
+
+## Часть 3: Nostr Protocol
 
 ### Транспорт
 
@@ -282,6 +331,7 @@ Soviet Messenger использует **два независимых прото
 | 41 | Channel Metadata | Обновление имени, описания, аватара канала |
 | 42 | Channel Message | Сообщение в канале |
 | 5 | Delete Event | Удаление события (канала или сообщения) |
+| 4444 | Soviet DM | E2E-шифрованное личное сообщение (fallback при недоступности LAN/P2P) |
 
 ### Kind 40: Create Channel
 
@@ -360,6 +410,49 @@ Soviet Messenger использует **два независимых прото
 - Удаление сообщения: `["e", "<kind-42-event-id>"]`
 
 Relay получает это событие и удаляет (`delete` или `soft-delete`) целевое событие.
+
+### Kind 4444: Soviet DM (личное сообщение — fallback)
+
+Используется как fallback-транспорт когда ни LAN, ни P2P-соединение недоступны.
+
+```json
+{
+  "kind": 4444,
+  "pubkey": "<Nostr pubkey отправителя>",
+  "created_at": 1700000000,
+  "tags": [
+    ["p", "<hex Soviet pubkey получателя>"],
+    ["t", "soviet-dm"]
+  ],
+  "content": "<Soviet EncryptedMessage JSON>",
+  "sig": "<Schnorr подпись>"
+}
+```
+
+**Поля:**
+- `tags[p]` — hex-кодированный Soviet Ed25519 публичный ключ получателя (для подписки)
+- `tags[t]` — тег `"soviet-dm"` для фильтрации
+- `content` — JSON объект `EncryptedMessage` (Soviet формат, ChaCha20-Poly1305):
+  ```json
+  {
+    "sender_pk": "<Base58 Ed25519 Soviet pubkey>",
+    "ephemeral_pk": "<Base58 X25519 ephemeral key>",
+    "nonce": "<Base64 12 bytes>",
+    "ciphertext": "<Base64>",
+    "signature": "<Base64 Ed25519>",
+    "timestamp": 1700000000
+  }
+  ```
+
+**Подписка получателя:**
+```json
+["REQ", "soviet-dms", {"kinds": [4444], "#p": ["<hex Soviet pubkey>"], "limit": 500}]
+```
+
+**Безопасность:**
+- Relay видит только зашифрованный blob, hex-ключ получателя и timestamp
+- Расшифровать содержимое может только получатель своим Soviet X25519 ключом
+- Дедупликация на стороне получателя по `timestamp + sender_pk`
 
 ---
 
@@ -490,14 +583,11 @@ Relay отправляет `NOTICE` сообщение:
 
 ## Версионирование протокола
 
-Если версия обновляется:
-
-1. **v1.0** → версия как сейчас
-2. **v2.0** — может включать:
-   - MessagePack вместо JSON
-   - Новые типы пакетов
-   - mDNS вместо broadcast
-   - Шифрованные Nostr сообщения (NIP-44)
+| Версия | Транспорты | Изменения |
+|--------|-----------|-----------|
+| **v1.0** | LAN (UDP broadcast + TCP), Nostr каналы | Первый стабильный релиз |
+| **v1.1** | LAN (mDNS + TCP), P2P libp2p, Nostr каналы + DM Kind 4444 | Интернет P2P, Nostr DM fallback |
+| **v2.0** (план) | + NAT hole-punching (DCUtR), relay | GossipSub store-and-forward |
 
 Клиент всегда проверяет версию в `hello` пакете и отказывает несовместимым версиям.
 
@@ -517,8 +607,11 @@ Relay отправляет `NOTICE` сообщение:
 
 | Метрика | Значение |
 |---------|----------|
-| LAN сообщение (TCP) | 5-20 мс |
-| Nostr сообщение (WebSocket relay) | 100-1000 мс (зависит от relay) |
+| LAN сообщение (TCP direct) | 5-20 мс |
+| P2P сообщение (libp2p, прямое) | 50-200 мс |
+| P2P сообщение (через relay/NAT) | 200-500 мс |
+| Nostr DM Kind 4444 (fallback) | 500-2000 мс (зависит от relay) |
+| Nostr канальное сообщение | 100-1000 мс |
 | Размер hello пакета | ~200 bytes |
 | Размер message пакета (зашифрованное) | 200-500 bytes |
 | Пакеты в секунду (LAN) | > 1000 |
