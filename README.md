@@ -1,7 +1,7 @@
 # 🐻 Soviet — Децентрализованный мессенджер
 
 <p align="center">
-  <img src="assets/logo/bear_icon.svg" alt="Soviet Logo" width="120"/>
+  <img src="https://raw.githubusercontent.com/r2bb1tDev/Soviet/main/assets/logo/bear_icon.svg" alt="Soviet Logo" width="120"/>
 </p>
 
 <p align="center">
@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/github/v/release/r2bb1tDev/Soviet?label=скачать&color=blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v1.1.0-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/платформы-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/лицензия-MIT-green"/></a>
