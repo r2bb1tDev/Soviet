@@ -178,10 +178,24 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
             reply_to TEXT,
             is_mine INTEGER DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS nostr_reactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            reactor_pubkey TEXT NOT NULL,
+            emoji TEXT NOT NULL,
+            reaction_event_id TEXT,
+            created_at INTEGER NOT NULL,
+            UNIQUE(event_id, reactor_pubkey, emoji)
+        );
     ")?;
     // Add new columns to existing messages table (silently ignored if already present)
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN edited_at INTEGER", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0", []);
+    // Add new columns to nostr_messages (silently ignored if already present)
+    let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN edited_at INTEGER", []);
+    let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN is_deleted INTEGER DEFAULT 0", []);
     Ok(())
 }
 
@@ -761,6 +775,19 @@ pub struct NostrMessageRow {
     pub timestamp: i64,
     pub reply_to: Option<String>,
     pub is_mine: bool,
+    pub edited_at: Option<i64>,
+    pub is_deleted: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NostrReactionRow {
+    pub id: i64,
+    pub event_id: String,
+    pub channel_id: String,
+    pub reactor_pubkey: String,
+    pub emoji: String,
+    pub reaction_event_id: Option<String>,
+    pub created_at: i64,
 }
 
 pub fn nostr_get_keys(conn: &Connection) -> anyhow::Result<Option<(String, String)>> {
@@ -897,7 +924,8 @@ pub fn nostr_save_message(
 
 pub fn nostr_get_messages(conn: &Connection, channel_id: &str, limit: i64) -> anyhow::Result<Vec<NostrMessageRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, event_id, channel_id, sender_pubkey, sender_name, content, timestamp, reply_to, is_mine
+        "SELECT id, event_id, channel_id, sender_pubkey, sender_name, content, timestamp, reply_to, is_mine,
+                edited_at, is_deleted
          FROM nostr_messages WHERE channel_id=?1 ORDER BY timestamp ASC LIMIT ?2"
     )?;
     let rows = stmt.query_map(params![channel_id, limit], |row| {
@@ -911,6 +939,68 @@ pub fn nostr_get_messages(conn: &Connection, channel_id: &str, limit: i64) -> an
             timestamp: row.get(6)?,
             reply_to: row.get(7)?,
             is_mine: row.get::<_, i64>(8)? != 0,
+            edited_at: row.get(9)?,
+            is_deleted: row.get::<_, i64>(10).unwrap_or(0) != 0,
+        })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+pub fn nostr_edit_message(conn: &Connection, event_id: &str, new_content: &str, edited_at: i64) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE nostr_messages SET content=?1, edited_at=?2 WHERE event_id=?3",
+        params![new_content, edited_at, event_id],
+    )?;
+    Ok(())
+}
+
+pub fn nostr_soft_delete_message(conn: &Connection, event_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE nostr_messages SET is_deleted=1 WHERE event_id=?1",
+        params![event_id],
+    )?;
+    Ok(())
+}
+
+pub fn nostr_save_reaction(
+    conn: &Connection,
+    event_id: &str,
+    channel_id: &str,
+    reactor_pubkey: &str,
+    emoji: &str,
+    reaction_event_id: &str,
+) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().timestamp();
+    conn.execute(
+        "INSERT OR IGNORE INTO nostr_reactions(event_id,channel_id,reactor_pubkey,emoji,reaction_event_id,created_at)
+         VALUES(?1,?2,?3,?4,?5,?6)",
+        params![event_id, channel_id, reactor_pubkey, emoji, reaction_event_id, now],
+    )?;
+    Ok(())
+}
+
+pub fn nostr_remove_reaction(conn: &Connection, reaction_event_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM nostr_reactions WHERE reaction_event_id=?1",
+        params![reaction_event_id],
+    )?;
+    Ok(())
+}
+
+pub fn nostr_get_reactions(conn: &Connection, channel_id: &str) -> anyhow::Result<Vec<NostrReactionRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, event_id, channel_id, reactor_pubkey, emoji, reaction_event_id, created_at
+         FROM nostr_reactions WHERE channel_id=?1 ORDER BY created_at ASC"
+    )?;
+    let rows = stmt.query_map(params![channel_id], |row| {
+        Ok(NostrReactionRow {
+            id: row.get(0)?,
+            event_id: row.get(1)?,
+            channel_id: row.get(2)?,
+            reactor_pubkey: row.get(3)?,
+            emoji: row.get(4)?,
+            reaction_event_id: row.get(5)?,
+            created_at: row.get(6)?,
         })
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())

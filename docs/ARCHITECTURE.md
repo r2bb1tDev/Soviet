@@ -2,13 +2,13 @@
 
 ## Обзор
 
-Soviet Messenger (v1.1) построен на **Tauri 2.1** с Rust-бэкенд и React/TypeScript-фронтенд. Это децентрализованный мессенджер с поддержкой:
+Soviet Messenger (v1.2) построен на **Tauri 2.1** с Rust-бэкенд и React/TypeScript-фронтенд. Это децентрализованный мессенджер с поддержкой:
 
 1. **Прямых E2E чатов** — шифрование ChaCha20-Poly1305 через ECDH
 2. **Групповых чатов** — групповой симметричный ключ
 3. **LAN-режима** — без интернета, mDNS + TCP
 4. **P2P mesh-сети** — libp2p Kademlia DHT через интернет
-5. **Nostr каналов** — публичные каналы через WebSocket relay
+5. **Nostr каналов v2** — публичные каналы с редактированием, удалением, реакциями, комментариями и медиа (Telegram-parity)
 6. **Nostr DM fallback** — Kind 4444 E2E-шифрованные личные сообщения через relay
 
 ---
@@ -155,6 +155,14 @@ fn nostr_join_channel(channel_id: String) -> Result<(), String>
 fn nostr_send_message(channel_id: String, content: String, ...) -> Result<(), String>
 fn get_nostr_channels() -> Result<Vec<NostrChannel>, String>
 
+// Nostr Channels v2 (новое в v1.2)
+fn nostr_edit_channel_message(event_id: String, channel_id: String, new_content: String) -> Result<(), String>
+fn nostr_delete_channel_message(event_id: String, channel_id: String) -> Result<(), String>
+fn nostr_send_channel_reaction(event_id: String, channel_id: String, emoji: String) -> Result<(), String>
+fn nostr_remove_channel_reaction(event_id: String, channel_id: String, emoji: String) -> Result<(), String>
+fn nostr_get_channel_reactions(channel_id: String) -> Result<HashMap<String, Vec<ChannelReaction>>, String>
+fn nostr_send_comment(channel_id: String, parent_event_id: String, content: String) -> Result<(), String>
+
 // Groups
 fn create_group(name: String, member_pks: Vec<String>) -> Result<String, String>
 fn send_group_message(group_id: String, content: String) -> Result<(), String>
@@ -300,10 +308,12 @@ impl NostrManager {
 }
 
 // Nostr события
-kind=40: Create channel
-kind=41: Update channel metadata
-kind=42: Channel message
-kind=5:  Delete event
+kind=40:   Create channel
+kind=41:   Update channel metadata
+kind=42:   Channel message / edit (тег "edit") / comment (тег "reply")
+kind=5:    Delete event (soft-delete)
+kind=7:    Reaction (NIP-25) — новое в v1.2
+kind=4444: Soviet DM fallback (E2E)
 ```
 
 ---
@@ -400,9 +410,25 @@ CREATE TABLE nostr_messages (
     id TEXT PRIMARY KEY,        -- Event ID
     channel_id TEXT REFERENCES nostr_channels(id),
     sender_key TEXT NOT NULL,
-    content TEXT NOT NULL,
+    content TEXT NOT NULL,      -- plaintext или JSON {v:1, text, media:{type,data,name,size}}
     timestamp INTEGER NOT NULL,
-    deleted_at INTEGER
+    deleted_at INTEGER,
+    -- Новое в v1.2:
+    edited_at INTEGER,          -- unix timestamp последнего редактирования
+    is_deleted INTEGER DEFAULT 0,  -- 1 = soft-deleted (Kind 5 получен)
+    reply_to TEXT               -- event_id родительского поста (для комментариев)
+);
+
+-- Реакции на сообщения в Nostr каналах (новое в v1.2)
+CREATE TABLE nostr_reactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL,         -- target event ID
+    channel_id TEXT NOT NULL,
+    reactor_pubkey TEXT NOT NULL,
+    emoji TEXT NOT NULL,
+    reaction_event_id TEXT,         -- Nostr Kind 7 event ID (для удаления)
+    created_at INTEGER NOT NULL,
+    UNIQUE(event_id, reactor_pubkey, emoji)
 );
 ```
 

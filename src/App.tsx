@@ -15,6 +15,7 @@ export default function App() {
     loadMessages, setTyping, updateContactStatus,
     addToast, loadChannels, addChannelMessage,
     updateReaction, applyMessageEdit, applyMessageDelete,
+    applyChannelEdit, applyChannelDelete, applyChannelReaction,
   } = useStore()
   const get = useStore.getState
 
@@ -191,6 +192,21 @@ export default function App() {
       loadChats()
     })
 
+    // Nostr сообщение отредактировано
+    const unlistenCE = listen<{ event_id: string; new_content: string; edited_at: number }>('nostr-message-edited', (e) => {
+      applyChannelEdit(e.payload.event_id, e.payload.new_content, e.payload.edited_at)
+    })
+
+    // Nostr сообщение удалено
+    const unlistenCDel = listen<{ event_id: string }>('nostr-message-deleted', (e) => {
+      applyChannelDelete(e.payload.event_id)
+    })
+
+    // Nostr реакция
+    const unlistenCR = listen<any>('nostr-reaction', (e) => {
+      applyChannelReaction(e.payload)
+    })
+
     // Nostr канал удалён (создателем или подпиской)
     const unlistenCD = listen<{ channel_id: string }>('nostr-channel-deleted', (e) => {
       const st = useStore.getState()
@@ -228,6 +244,9 @@ export default function App() {
       unlistenGL.then(f => f())
       unlistenGD.then(f => f())
       unlistenCD.then(f => f())
+      unlistenCE.then(f => f())
+      unlistenCDel.then(f => f())
+      unlistenCR.then(f => f())
       unlistenP2pFound.then(f => f())
       unlistenP2pLost.then(f => f())
     }

@@ -65,6 +65,34 @@ pub enum NostrCmd {
     SubscribeDms {
         my_soviet_pk: String, // Base58 Ed25519
     },
+    /// Редактировать сообщение канала — Kind 42 с edit-тегом
+    EditChannelMessage {
+        channel_id: String,
+        original_event_id: String,
+        relay: String,
+        new_content: String,
+    },
+    /// Удалить сообщение канала — Kind 5
+    DeleteChannelMessage {
+        event_id: String,
+    },
+    /// Реакция на сообщение — Kind 7 (NIP-25)
+    SendReaction {
+        target_event_id: String,
+        target_author_pubkey: String,
+        emoji: String,
+    },
+    /// Убрать реакцию — Kind 5 на reaction event
+    RemoveReaction {
+        reaction_event_id: String,
+    },
+    /// Отправить комментарий (ответ на пост) — Kind 42 с reply-тегом; от любого подписчика
+    SendComment {
+        channel_id: String,
+        relay: String,
+        parent_event_id: String,
+        content: String,
+    },
 }
 
 pub struct NostrHandle {
@@ -299,6 +327,51 @@ async fn relay_loop(
                     log::info!("Nostr: DM subscription updated for {:.16}…", pk_hex);
                 }
             }
+
+            // ── Edit channel message — Kind 42 with edit tag ──────────────────
+            NostrCmd::EditChannelMessage { channel_id, original_event_id, relay, new_content } => {
+                let tags = vec![
+                    vec!["e".to_string(), channel_id, relay, "root".to_string()],
+                    vec!["e".to_string(), original_event_id, "".to_string(), "edit".to_string()],
+                ];
+                let ev = build_event(42, tags, new_content, &pubkey_hex, &secret_hex);
+                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
+            }
+
+            // ── Delete channel message — Kind 5 ──────────────────────────────
+            NostrCmd::DeleteChannelMessage { event_id } => {
+                let tags = vec![vec!["e".to_string(), event_id]];
+                let ev = build_event(5, tags, "deleted".to_string(), &pubkey_hex, &secret_hex);
+                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
+            }
+
+            // ── Reaction — Kind 7 (NIP-25) ───────────────────────────────────
+            NostrCmd::SendReaction { target_event_id, target_author_pubkey, emoji } => {
+                let tags = vec![
+                    vec!["e".to_string(), target_event_id],
+                    vec!["p".to_string(), target_author_pubkey],
+                    vec!["t".to_string(), "soviet-channel".to_string()],
+                ];
+                let ev = build_event(7, tags, emoji, &pubkey_hex, &secret_hex);
+                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
+            }
+
+            // ── Remove reaction — Kind 5 on reaction event ───────────────────
+            NostrCmd::RemoveReaction { reaction_event_id } => {
+                let tags = vec![vec!["e".to_string(), reaction_event_id]];
+                let ev = build_event(5, tags, "reaction removed".to_string(), &pubkey_hex, &secret_hex);
+                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
+            }
+
+            // ── Comment (reply to post) — Kind 42 with reply tag ─────────────
+            NostrCmd::SendComment { channel_id, relay, parent_event_id, content } => {
+                let tags = vec![
+                    vec!["e".to_string(), channel_id, relay.clone(), "root".to_string()],
+                    vec!["e".to_string(), parent_event_id, relay, "reply".to_string()],
+                ];
+                let ev = build_event(42, tags, content, &pubkey_hex, &secret_hex);
+                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
+            }
         }
     }
 }
@@ -354,6 +427,26 @@ async fn on_relay_msg(
         }
 
         42 => {
+            use tauri::Emitter;
+
+            // Detect edit-tag: ["e", original_event_id, "", "edit"]
+            let edit_target = ev.tags.iter()
+                .find(|t| t.len() >= 4 && t[0] == "e" && t[3] == "edit")
+                .map(|t| t[1].clone());
+
+            if let Some(original_id) = edit_target {
+                // This is an edit event — update existing message
+                let conn = db.lock().unwrap();
+                crate::storage::nostr_edit_message(&conn, &original_id, &ev.content, ev.created_at).ok();
+                drop(conn);
+                app.emit("nostr-message-edited", json!({
+                    "event_id": original_id,
+                    "new_content": ev.content,
+                    "edited_at": ev.created_at,
+                })).ok();
+                return;
+            }
+
             let channel_id = ev.tags.iter()
                 .find(|t| t.len() >= 4 && t[0] == "e" && t[3] == "root")
                 .or_else(|| ev.tags.iter().find(|t| t.len() >= 2 && t[0] == "e"))
@@ -374,7 +467,6 @@ async fn on_relay_msg(
                 ).ok();
             }
 
-            use tauri::Emitter;
             app.emit("nostr-message", json!({
                 "channel_id": channel_id,
                 "event_id": ev.id,
@@ -387,18 +479,61 @@ async fn on_relay_msg(
         }
 
         5 => {
-            // Deletion event — remove channel if creator deleted it
+            use tauri::Emitter;
             for tag in &ev.tags {
                 if tag.len() >= 2 && tag[0] == "e" {
-                    let channel_id = &tag[1];
-                    {
-                        let conn = db.lock().unwrap();
-                        crate::storage::nostr_delete_channel(&conn, channel_id).ok();
-                    }
-                    use tauri::Emitter;
-                    app.emit("nostr-channel-deleted", json!({ "channel_id": channel_id })).ok();
+                    let target_id = &tag[1];
+                    let conn = db.lock().unwrap();
+                    // Try soft-delete as channel message first
+                    crate::storage::nostr_soft_delete_message(&conn, target_id).ok();
+                    // Also remove reaction if it's a reaction deletion
+                    crate::storage::nostr_remove_reaction(&conn, target_id).ok();
+                    // Also try channel deletion (for kind 40 events)
+                    crate::storage::nostr_delete_channel(&conn, target_id).ok();
+                    drop(conn);
+                    app.emit("nostr-message-deleted", json!({
+                        "event_id": target_id
+                    })).ok();
+                    app.emit("nostr-channel-deleted", json!({ "channel_id": target_id })).ok();
                 }
             }
+        }
+
+        // ── Kind 7: Reaction ──────────────────────────────────────────────────
+        7 => {
+            let target_event_id = ev.tags.iter()
+                .find(|t| t.len() >= 2 && t[0] == "e")
+                .map(|t| t[1].clone())
+                .unwrap_or_default();
+            if target_event_id.is_empty() { return; }
+
+            // Find channel_id for this message
+            let channel_id = {
+                let conn = db.lock().unwrap();
+                conn.query_row(
+                    "SELECT channel_id FROM nostr_messages WHERE event_id=?1",
+                    rusqlite::params![target_event_id],
+                    |r| r.get::<_, String>(0),
+                ).unwrap_or_default()
+            };
+            if channel_id.is_empty() { return; }
+
+            {
+                let conn = db.lock().unwrap();
+                crate::storage::nostr_save_reaction(
+                    &conn, &target_event_id, &channel_id,
+                    &ev.pubkey, &ev.content, &ev.id,
+                ).ok();
+            }
+
+            use tauri::Emitter;
+            app.emit("nostr-reaction", json!({
+                "event_id": target_event_id,
+                "channel_id": channel_id,
+                "reactor_pubkey": ev.pubkey,
+                "emoji": ev.content,
+                "reaction_event_id": ev.id,
+            })).ok();
         }
 
         // ── Soviet DM (Kind 4444) — E2E зашифрованное личное сообщение ──────

@@ -1455,6 +1455,138 @@ fn nostr_get_subscriber_count(channel_id: String, state: State<AppState>) -> i64
     storage::nostr_get_subscriber_count(&db, &channel_id).unwrap_or(0)
 }
 
+// ─── Commands — Channel v2: Edit / Delete / Reactions / Comments ─────────────
+
+#[tauri::command]
+async fn nostr_edit_channel_message(
+    event_id: String,
+    channel_id: String,
+    new_content: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().ok_or("Nostr not ready")?.cmd_tx.clone()
+    };
+    {
+        let now = chrono::Utc::now().timestamp();
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_edit_message(&db, &event_id, &new_content, now)
+            .map_err(|e| e.to_string())?;
+    }
+    cmd_tx.send(nostr::NostrCmd::EditChannelMessage {
+        channel_id,
+        original_event_id: event_id,
+        relay: DEFAULT_RELAY.to_string(),
+        new_content,
+    }).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn nostr_delete_channel_message(
+    event_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().ok_or("Nostr not ready")?.cmd_tx.clone()
+    };
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_soft_delete_message(&db, &event_id)
+            .map_err(|e| e.to_string())?;
+    }
+    cmd_tx.send(nostr::NostrCmd::DeleteChannelMessage { event_id })
+        .await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn nostr_send_channel_reaction(
+    event_id: String,
+    channel_id: String,
+    author_pubkey: String,
+    emoji: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().ok_or("Nostr not ready")?.cmd_tx.clone()
+    };
+    // Optimistic local save with a temp reaction_event_id
+    let temp_rid = format!("local_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+    let my_pk = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().map(|n| n.pubkey_hex.clone()).unwrap_or_default()
+    };
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_save_reaction(&db, &event_id, &channel_id, &my_pk, &emoji, &temp_rid)
+            .map_err(|e| e.to_string())?;
+    }
+    cmd_tx.send(nostr::NostrCmd::SendReaction {
+        target_event_id: event_id,
+        target_author_pubkey: author_pubkey,
+        emoji,
+    }).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn nostr_remove_channel_reaction(
+    reaction_event_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let cmd_tx = {
+        let guard = state.nostr.lock().unwrap();
+        guard.as_ref().ok_or("Nostr not ready")?.cmd_tx.clone()
+    };
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::nostr_remove_reaction(&db, &reaction_event_id)
+            .map_err(|e| e.to_string())?;
+    }
+    cmd_tx.send(nostr::NostrCmd::RemoveReaction { reaction_event_id })
+        .await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn nostr_get_channel_reactions(
+    channel_id: String,
+    state: State<AppState>,
+) -> Result<Vec<storage::NostrReactionRow>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::nostr_get_reactions(&db, &channel_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn nostr_send_comment(
+    channel_id: String,
+    parent_event_id: String,
+    content: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let relay = DEFAULT_RELAY.to_string();
+    let (cmd_tx, my_pk) = {
+        let guard = state.nostr.lock().unwrap();
+        let n = guard.as_ref().ok_or("Nostr not ready")?;
+        (n.cmd_tx.clone(), n.pubkey_hex.clone())
+    };
+    cmd_tx.send(nostr::NostrCmd::SendComment {
+        channel_id: channel_id.clone(),
+        relay: relay.clone(),
+        parent_event_id: parent_event_id.clone(),
+        content: content.clone(),
+    }).await.map_err(|e| e.to_string())?;
+
+    // Save locally as a reply
+    let timestamp = chrono::Utc::now().timestamp();
+    let temp_event_id = format!("local_comment_{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+    let db = state.db.0.lock().unwrap();
+    storage::nostr_save_message(
+        &db, &temp_event_id, &channel_id, &my_pk,
+        &content, timestamp, Some(&parent_event_id), true,
+    ).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn get_p2p_peers(state: State<AppState>) -> Vec<p2p::P2pPeer> {
     let p2p_guard = state.p2p.lock().unwrap();
@@ -1654,6 +1786,12 @@ pub fn run() {
             delete_chat,
             nostr_delete_channel_cmd,
             nostr_get_subscriber_count,
+            nostr_edit_channel_message,
+            nostr_delete_channel_message,
+            nostr_send_channel_reaction,
+            nostr_remove_channel_reaction,
+            nostr_get_channel_reactions,
+            nostr_send_comment,
             get_p2p_peers,
             sign_out,
         ])

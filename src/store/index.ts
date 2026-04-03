@@ -116,6 +116,42 @@ export interface NostrMessage {
   timestamp: number
   reply_to: string | null
   is_mine: boolean
+  edited_at: number | null
+  is_deleted: boolean
+}
+
+export interface ChannelReaction {
+  id: number
+  event_id: string
+  channel_id: string
+  reactor_pubkey: string
+  emoji: string
+  reaction_event_id: string | null
+  created_at: number
+}
+
+export interface ChannelMedia {
+  type: 'image' | 'video' | 'audio' | 'gif'
+  data: string   // data URL base64
+  name: string
+  size?: number
+}
+
+/** Parse content field: returns { text, media } */
+export function parseChannelContent(content: string): { text: string; media: ChannelMedia | null } {
+  try {
+    const obj = JSON.parse(content)
+    if (obj && obj.v === 1) {
+      return { text: obj.text ?? '', media: obj.media ?? null }
+    }
+  } catch { /* plain text */ }
+  return { text: content, media: null }
+}
+
+/** Build content field with optional media */
+export function buildChannelContent(text: string, media?: ChannelMedia | null): string {
+  if (!media) return text
+  return JSON.stringify({ v: 1, text, media })
 }
 
 let toastIdCounter = 1
@@ -200,15 +236,25 @@ interface AppStore {
   channels: NostrChannel[]
   activeChannel: NostrChannel | null
   channelMessages: NostrMessage[]
+  channelReactions: Record<string, ChannelReaction[]>  // event_id → reactions
   loadChannels: () => Promise<void>
   setActiveChannel: (ch: NostrChannel | null) => void
   loadChannelMessages: (channelId: string) => Promise<void>
+  loadChannelReactions: (channelId: string) => Promise<void>
   sendChannelMessage: (channelId: string, content: string, replyTo?: string) => Promise<void>
+  editChannelMessage: (eventId: string, channelId: string, newContent: string) => Promise<void>
+  deleteChannelMessage: (eventId: string) => Promise<void>
+  sendChannelReaction: (eventId: string, channelId: string, authorPubkey: string, emoji: string) => Promise<void>
+  removeChannelReaction: (reactionEventId: string) => Promise<void>
+  sendComment: (channelId: string, parentEventId: string, content: string) => Promise<void>
   createChannel: (name: string, about: string) => Promise<string>
   joinChannel: (channelId: string, relay?: string) => Promise<void>
   leaveChannel: (channelId: string) => Promise<void>
   markChannelRead: (channelId: string) => Promise<void>
   addChannelMessage: (msg: NostrMessage) => void
+  applyChannelEdit: (eventId: string, newContent: string, editedAt: number) => void
+  applyChannelDelete: (eventId: string) => void
+  applyChannelReaction: (r: ChannelReaction) => void
   updateChannelMeta: (channelId: string, name: string, about: string, picture: string) => Promise<void>
   deleteChannel: (channelId: string) => Promise<void>
   getSubscriberCount: (channelId: string) => Promise<number>
@@ -495,6 +541,7 @@ export const useStore = create<AppStore>((set, get) => ({
   channels: [],
   activeChannel: null,
   channelMessages: [],
+  channelReactions: {},
 
   loadChannels: async () => {
     const [channels, pubkey] = await Promise.all([
@@ -513,12 +560,80 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   loadChannelMessages: async (channelId) => {
-    const msgs = await invoke<NostrMessage[]>('nostr_get_messages', { channelId, limit: 100 })
+    const msgs = await invoke<NostrMessage[]>('nostr_get_messages', { channelId, limit: 200 })
     set({ channelMessages: msgs })
+    get().loadChannelReactions(channelId)
+  },
+
+  loadChannelReactions: async (channelId) => {
+    try {
+      const rows = await invoke<ChannelReaction[]>('nostr_get_channel_reactions', { channelId })
+      const byEvent: Record<string, ChannelReaction[]> = {}
+      for (const r of rows) {
+        if (!byEvent[r.event_id]) byEvent[r.event_id] = []
+        byEvent[r.event_id].push(r)
+      }
+      set(s => ({ channelReactions: { ...s.channelReactions, ...byEvent } }))
+    } catch { /* ignore */ }
   },
 
   sendChannelMessage: async (channelId, content, replyTo) => {
     await invoke('nostr_send_channel_message', { channelId, content, replyTo: replyTo ?? null })
+  },
+
+  editChannelMessage: async (eventId, channelId, newContent) => {
+    await invoke('nostr_edit_channel_message', { eventId, channelId, newContent })
+    get().applyChannelEdit(eventId, newContent, Math.floor(Date.now() / 1000))
+  },
+
+  deleteChannelMessage: async (eventId) => {
+    await invoke('nostr_delete_channel_message', { eventId })
+    get().applyChannelDelete(eventId)
+  },
+
+  sendChannelReaction: async (eventId, channelId, authorPubkey, emoji) => {
+    await invoke('nostr_send_channel_reaction', { eventId, channelId, authorPubkey, emoji })
+  },
+
+  removeChannelReaction: async (reactionEventId) => {
+    await invoke('nostr_remove_channel_reaction', { reactionEventId })
+    set(s => {
+      const next: Record<string, ChannelReaction[]> = {}
+      for (const [eid, rs] of Object.entries(s.channelReactions)) {
+        const filtered = rs.filter(r => r.reaction_event_id !== reactionEventId)
+        if (filtered.length) next[eid] = filtered
+      }
+      return { channelReactions: next }
+    })
+  },
+
+  sendComment: async (channelId, parentEventId, content) => {
+    await invoke('nostr_send_comment', { channelId, parentEventId, content })
+  },
+
+  applyChannelEdit: (eventId, newContent, editedAt) => {
+    set(s => ({
+      channelMessages: s.channelMessages.map(m =>
+        m.event_id === eventId ? { ...m, content: newContent, edited_at: editedAt } : m
+      )
+    }))
+  },
+
+  applyChannelDelete: (eventId) => {
+    set(s => ({
+      channelMessages: s.channelMessages.map(m =>
+        m.event_id === eventId ? { ...m, is_deleted: true } : m
+      )
+    }))
+  },
+
+  applyChannelReaction: (r) => {
+    set(s => {
+      const prev = s.channelReactions[r.event_id] ?? []
+      const exists = prev.some(x => x.reactor_pubkey === r.reactor_pubkey && x.emoji === r.emoji)
+      if (exists) return {}
+      return { channelReactions: { ...s.channelReactions, [r.event_id]: [...prev, r] } }
+    })
   },
 
   createChannel: async (name, about) => {
