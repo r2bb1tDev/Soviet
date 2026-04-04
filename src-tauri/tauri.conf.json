@@ -50,7 +50,7 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://releases.example.com/{{ target }}/{{ version }}/update.json"
+        "https://raw.githubusercontent.com/r2bb1tDev/Soviet/main/latest.json"
       ],
       "dialog": true,
       "pubkey": ""
