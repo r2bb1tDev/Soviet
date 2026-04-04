@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
-import { checkUpdate, installUpdate } from '@tauri-apps/plugin-updater'
+import { checkUpdate } from '@tauri-apps/plugin-updater'
 import { useStore } from './store'
 import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
@@ -38,11 +38,11 @@ export default function App() {
   const handleInstallUpdate = async () => {
     if (updateInfo) {
       try {
-        await installUpdate()
+        await updateInfo.install()
         // Приложение перезапустится автоматически после установки
       } catch (error) {
         console.error('Update installation failed:', error)
-        addToast('Ошибка обновления', 'error')
+        addToast({ type: 'error', title: 'Ошибка обновления', body: 'Не удалось установить обновление' })
       }
     }
   }
