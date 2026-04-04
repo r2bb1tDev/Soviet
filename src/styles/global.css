@@ -1,62 +1,144 @@
 /* ═══════════════════════════════════════════════════════════════
    Soviet — Global Styles
-   Автоматическая адаптация под тему ОС через data-theme
+   Telegram-parity design tokens + bubble classes
 ═══════════════════════════════════════════════════════════════ */
 
 /* ── CSS Variables — Light Theme (default) ── */
 :root, [data-theme="light"] {
-  --bg-primary:    #FFFFFF;
-  --bg-secondary:  #F5F5F5;
-  --bg-tertiary:   #EBEBEB;
-  --bg-hover:      #E0E0E0;
-  --accent:        #CC3333;
-  --accent-hover:  #AA2222;
-  --text-primary:  #1A1A1A;
-  --text-secondary:#666666;
-  --text-muted:    #999999;
-  --bubble-self:   #DCF8C6;
-  --bubble-other:  #FFFFFF;
-  --bubble-self-text:  #1A1A1A;
-  --bubble-other-text: #1A1A1A;
-  --border:        #E0E0E0;
-  --border-light:  #F0F0F0;
-  --online:        #4CAF50;
-  --away:          #FFC107;
-  --busy:          #F44336;
-  --offline:       #9E9E9E;
-  --shadow:        rgba(0,0,0,0.08);
-  --scrollbar:     #CCCCCC;
-  --input-bg:      #FFFFFF;
-  --input-border:  #D0D0D0;
-  --btn-secondary: #EBEBEB;
+  /* Backgrounds */
+  --bg-primary:         #FFFFFF;
+  --bg-secondary:       #F1F1F1;
+  --bg-tertiary:        #E4E4E4;
+  --bg-hover:           #D9D9D9;
+  --bg-chat:            #DAE8F5;   /* Telegram chat area background */
+  --bg-sidebar:         #FFFFFF;
+
+  /* Accent — Telegram blue */
+  --accent:             #2AABEE;
+  --accent-hover:       #1A9ADB;
+  --accent-text:        #FFFFFF;
+
+  /* Text */
+  --text-primary:       #000000;
+  --text-secondary:     #707579;
+  --text-muted:         #A2ACB4;
+  --text-link:          #2AABEE;
+
+  /* Bubbles */
+  --bubble-out-bg:      #EFFDDE;   /* outgoing — Telegram green */
+  --bubble-out-text:    #000000;
+  --bubble-out-meta:    #7CB572;   /* timestamp + tick color */
+  --bubble-in-bg:       #FFFFFF;   /* incoming */
+  --bubble-in-text:     #000000;
+  --bubble-in-meta:     #A2ACB4;
+  --bubble-radius:      18px;
+  --bubble-radius-tail: 4px;       /* corner with tail */
+
+  /* Channel post bubble */
+  --bubble-channel-bg:  #FFFFFF;
+  --bubble-channel-text:#000000;
+
+  /* Sidebar row */
+  --row-active-bg:      #E8F4FD;
+  --row-unread-badge:   #2AABEE;
+  --row-muted-badge:    #A2ACB4;
+
+  /* Borders */
+  --border:             #E6EBEE;
+  --border-light:       #F0F3F5;
+  --divider:            #E6EBEE;
+
+  /* Status */
+  --online:             #0DC264;
+  --away:               #FFC107;
+  --busy:               #F44336;
+  --offline:            #C4C9CC;
+
+  /* Inputs */
+  --input-bg:           #FFFFFF;
+  --input-border:       #C8C8C8;
+  --input-focus:        #2AABEE;
+  --input-compose-bg:   #FFFFFF;
+
+  /* Misc */
+  --shadow:             rgba(0,0,0,0.10);
+  --shadow-md:          rgba(0,0,0,0.16);
+  --scrollbar:          #C1C9D0;
+  --btn-secondary:      #F1F1F1;
+  --header-bg:          #FFFFFF;
+  --header-text:        #000000;
+  --header-sub:         #707579;
+  --tick-read:          #4FC3F7;
+  --tick-unread:        #A2ACB4;
 }
 
 /* ── CSS Variables — Dark Theme ── */
 [data-theme="dark"] {
-  --bg-primary:    #1E1E2E;
-  --bg-secondary:  #181825;
-  --bg-tertiary:   #313244;
-  --bg-hover:      #45475A;
-  --accent:        #E05555;
-  --accent-hover:  #FF6666;
-  --text-primary:  #CDD6F4;
-  --text-secondary:#A6ADC8;
-  --text-muted:    #585B70;
-  --bubble-self:   #2D5A27;
-  --bubble-other:  #313244;
-  --bubble-self-text:  #CDD6F4;
-  --bubble-other-text: #CDD6F4;
-  --border:        #313244;
-  --border-light:  #1E1E2E;
-  --online:        #A6E3A1;
-  --away:          #F9E2AF;
-  --busy:          #F38BA8;
-  --offline:       #585B70;
-  --shadow:        rgba(0,0,0,0.3);
-  --scrollbar:     #45475A;
-  --input-bg:      #313244;
-  --input-border:  #45475A;
-  --btn-secondary: #313244;
+  /* Backgrounds */
+  --bg-primary:         #212121;
+  --bg-secondary:       #181818;
+  --bg-tertiary:        #2B2B2B;
+  --bg-hover:           #333333;
+  --bg-chat:            #0E1621;   /* Telegram dark chat bg */
+  --bg-sidebar:         #212121;
+
+  /* Accent */
+  --accent:             #2AABEE;
+  --accent-hover:       #1A9ADB;
+  --accent-text:        #FFFFFF;
+
+  /* Text */
+  --text-primary:       #FFFFFF;
+  --text-secondary:     #8A9BA8;
+  --text-muted:         #5A6775;
+  --text-link:          #2AABEE;
+
+  /* Bubbles */
+  --bubble-out-bg:      #2B5278;   /* outgoing dark — Telegram dark blue */
+  --bubble-out-text:    #FFFFFF;
+  --bubble-out-meta:    #6AB3F3;
+  --bubble-in-bg:       #182533;   /* incoming dark */
+  --bubble-in-text:     #FFFFFF;
+  --bubble-in-meta:     #5A6775;
+  --bubble-radius:      18px;
+  --bubble-radius-tail: 4px;
+
+  /* Channel post bubble */
+  --bubble-channel-bg:  #182533;
+  --bubble-channel-text:#FFFFFF;
+
+  /* Sidebar row */
+  --row-active-bg:      #2B5278;
+  --row-unread-badge:   #2AABEE;
+  --row-muted-badge:    #5A6775;
+
+  /* Borders */
+  --border:             #2B2B2B;
+  --border-light:       #1E1E1E;
+  --divider:            #2B2B2B;
+
+  /* Status */
+  --online:             #0DC264;
+  --away:               #FFC107;
+  --busy:               #F44336;
+  --offline:            #5A6775;
+
+  /* Inputs */
+  --input-bg:           #2B2B2B;
+  --input-border:       #3A3A3A;
+  --input-focus:        #2AABEE;
+  --input-compose-bg:   #2B2B2B;
+
+  /* Misc */
+  --shadow:             rgba(0,0,0,0.30);
+  --shadow-md:          rgba(0,0,0,0.45);
+  --scrollbar:          #3A3A3A;
+  --btn-secondary:      #2B2B2B;
+  --header-bg:          #212121;
+  --header-text:        #FFFFFF;
+  --header-sub:         #8A9BA8;
+  --tick-read:          #4FC3F7;
+  --tick-unread:        #5A6775;
 }
 
 /* ── Reset & Base ── */
@@ -80,7 +162,7 @@ html, body, #root {
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 /* ── Typography ── */
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--text-link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* ── Input / Textarea ── */
@@ -95,7 +177,7 @@ input, textarea {
   outline: none;
   transition: border-color 0.15s;
 }
-input:focus, textarea:focus { border-color: var(--accent); }
+input:focus, textarea:focus { border-color: var(--input-focus); }
 input::placeholder, textarea::placeholder { color: var(--text-muted); }
 
 /* ── Buttons ── */
@@ -112,7 +194,7 @@ button:active { opacity: 0.8; }
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   padding: 9px 20px;
   font-weight: 600;
 }
@@ -129,10 +211,146 @@ button:active { opacity: 0.8; }
   background: transparent;
   color: var(--text-secondary);
   padding: 6px;
-  border-radius: 6px;
+  border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px;
 }
 .btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ══════════════════════════════════════════════
+   BUBBLE SYSTEM — Telegram-parity
+══════════════════════════════════════════════ */
+
+/* Container wrapping each bubble row */
+.bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-bottom: 2px;
+  padding: 0 12px;
+}
+.bubble-row.out { flex-direction: row-reverse; }
+.bubble-row.in  { flex-direction: row; }
+
+/* First/last in a cluster get the tail; others are flat */
+.bubble-row.first-in-cluster  .bubble { border-bottom-left-radius:  var(--bubble-radius-tail); }
+.bubble-row.first-out-cluster .bubble { border-bottom-right-radius: var(--bubble-radius-tail); }
+
+/* Gap between cluster groups */
+.bubble-row.cluster-start { margin-top: 8px; }
+
+/* The bubble itself */
+.bubble {
+  position: relative;
+  max-width: 430px;
+  min-width: 48px;
+  padding: 6px 10px 22px;   /* bottom pad for meta */
+  border-radius: var(--bubble-radius);
+  font-size: 14px;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.bubble.out {
+  background: var(--bubble-out-bg);
+  color: var(--bubble-out-text);
+  border-bottom-right-radius: var(--bubble-radius-tail);
+}
+.bubble.in {
+  background: var(--bubble-in-bg);
+  color: var(--bubble-in-text);
+  border-bottom-left-radius: var(--bubble-radius-tail);
+}
+
+/* Single-bubble cluster — keep full radius */
+.bubble-row.single .bubble.out { border-bottom-right-radius: var(--bubble-radius); }
+.bubble-row.single .bubble.in  { border-bottom-left-radius:  var(--bubble-radius); }
+
+/* Meta line — time + ticks — anchored bottom-right inside bubble */
+.bubble-meta {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.bubble.out .bubble-meta { color: var(--bubble-out-meta); }
+.bubble.in  .bubble-meta { color: var(--bubble-in-meta); }
+
+/* Tick marks */
+.bubble-tick { display: flex; align-items: center; }
+.bubble-tick svg { width: 16px; height: 11px; }
+.bubble-tick.read svg { color: var(--tick-read); }
+.bubble-tick.unread svg { color: var(--tick-unread); }
+
+/* Sender name inside bubble (group chats, incoming only) */
+.bubble-sender {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--accent);
+}
+
+/* Channel post bubble — no tail, centered, wider */
+.bubble.channel {
+  background: var(--bubble-channel-bg);
+  color: var(--bubble-channel-text);
+  border-radius: var(--bubble-radius);
+  max-width: 540px;
+  align-self: center;
+}
+
+/* Forwarded label */
+.bubble-forward {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent);
+}
+
+/* Reply quote strip */
+.bubble-reply {
+  border-left: 3px solid var(--accent);
+  padding: 3px 8px;
+  margin-bottom: 4px;
+  border-radius: 2px;
+  background: rgba(0,0,0,0.05);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .bubble-reply { background: rgba(255,255,255,0.05); }
+
+/* Image inside bubble */
+.bubble-img {
+  display: block;
+  max-width: 100%;
+  border-radius: 12px;
+  margin-bottom: 4px;
+}
+
+/* Date separator */
+.date-separator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0 8px;
+  pointer-events: none;
+}
+.date-separator span {
+  background: rgba(0,0,0,0.25);
+  color: #fff;
+  font-size: 12px;
+  border-radius: 12px;
+  padding: 3px 10px;
+}
+[data-theme="dark"] .date-separator span { background: rgba(0,0,0,0.50); }
 
 /* ── Status dot ── */
 .status-dot {
@@ -141,11 +359,30 @@ button:active { opacity: 0.8; }
   border-radius: 50%;
   flex-shrink: 0;
 }
-.status-dot.online  { background: var(--online); }
-.status-dot.away    { background: var(--away); }
-.status-dot.busy    { background: var(--busy); }
-.status-dot.offline { background: var(--offline); }
-.status-dot.invisible { background: #333; }
+.status-dot.online    { background: var(--online); }
+.status-dot.away      { background: var(--away); }
+.status-dot.busy      { background: var(--busy); }
+.status-dot.offline   { background: var(--offline); }
+.status-dot.invisible { background: #555; }
+
+/* Unread badge — Telegram pill */
+.unread-badge {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--row-unread-badge);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+.unread-badge.muted {
+  background: var(--row-muted-badge);
+}
 
 /* ── Animations ── */
 @keyframes fadeSlideUp {
@@ -160,8 +397,13 @@ button:active { opacity: 0.8; }
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+@keyframes bubbleIn {
+  from { opacity: 0; transform: scale(0.92) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
 
-.fade-in { animation: fadeIn 0.15s ease; }
+.fade-in   { animation: fadeIn 0.15s ease; }
+.bubble-in-anim { animation: bubbleIn 0.18s cubic-bezier(.22,.68,0,1.2); }
 
 /* ── Reduce Motion ── */
 @media (prefers-reduced-motion: reduce) {
@@ -170,3 +412,10 @@ button:active { opacity: 0.8; }
 
 /* Avatar hover overlay */
 .avatar-wrap:hover .avatar-overlay { opacity: 1 !important; }
+
+/* ── Utility ── */
+.truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

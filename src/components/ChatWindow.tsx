@@ -55,13 +55,13 @@ export default function ChatWindow() {
   const handleLeaveGroup = async () => {
     if (!activeChat?.group_id) return
     if (!confirm('Покинуть группу?')) return
-    try { await leaveGroup(activeChat.group_id) } catch (e) { console.error(e) }
+    try { await leaveGroup(activeChat.group_id) } catch {}
   }
 
   const handleDeleteGroup = async () => {
     if (!activeChat?.group_id) return
     if (!confirm('Удалить группу для всех участников?')) return
-    try { await deleteGroup(activeChat.group_id) } catch (e) { console.error(e) }
+    try { await deleteGroup(activeChat.group_id) } catch {}
   }
 
   const handleDeleteChat = async () => {
@@ -70,7 +70,7 @@ export default function ChatWindow() {
     try {
       await deleteChat(activeChat.id)
       setActiveChat(null)
-    } catch (e) { console.error(e) }
+    } catch {}
   }
 
   const contact = contacts.find(c => c.public_key === activeChat?.peer_key)
@@ -81,6 +81,10 @@ export default function ChatWindow() {
     ? groupName
     : (contact?.local_alias ?? contact?.nickname
         ?? (activeChat?.peer_key ? activeChat.peer_key.slice(0, 12) + '...' : ''))
+
+  const avatarLetter = isGroup
+    ? (groupName as string)?.charAt(0).toUpperCase() ?? 'G'
+    : (displayName as string)?.charAt(0).toUpperCase() ?? '?'
 
   const isTyping = activeChat?.peer_key ? (typingUsers[activeChat.peer_key] ?? false) : false
 
@@ -97,7 +101,6 @@ export default function ChatWindow() {
     textareaRef.current?.focus()
   }, [activeChat?.id])
 
-  // Close context menu on click outside
   useEffect(() => {
     const close = () => { setContextMenu(null); setReactionPickerMsgId(null) }
     window.addEventListener('click', close)
@@ -138,9 +141,7 @@ export default function ChatWindow() {
         })
         const { activeChat: ac } = useStore.getState()
         if (ac && ac.id > 0) useStore.getState().loadMessages(ac.id)
-      } catch (err) {
-        console.error('File send error:', err)
-      }
+      } catch {}
     }
     reader.readAsDataURL(file)
     e.target.value = ''
@@ -156,9 +157,8 @@ export default function ChatWindow() {
       setText('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
       loadChats()
-    } catch (e) {
-      console.error('Send error:', e)
-    } finally {
+    } catch {}
+    finally {
       setSending(false)
       textareaRef.current?.focus()
     }
@@ -198,9 +198,7 @@ export default function ChatWindow() {
 
   const submitEdit = async () => {
     if (!editingId || !activeChat) return
-    try {
-      await editMessage(editingId, activeChat.id, editText)
-    } catch (e) { console.error(e) }
+    try { await editMessage(editingId, activeChat.id, editText) } catch {}
     setEditingId(null)
   }
 
@@ -208,9 +206,7 @@ export default function ChatWindow() {
     if (!activeChat) return
     if (!confirm('Удалить это сообщение?')) return
     setContextMenu(null)
-    try {
-      await deleteMessage(msgId, activeChat.id)
-    } catch (e) { console.error(e) }
+    try { await deleteMessage(msgId, activeChat.id) } catch {}
   }
 
   const handleForward = (text: string) => {
@@ -224,12 +220,9 @@ export default function ChatWindow() {
     const msgReactions = reactions[msgId] ?? []
     const existing = msgReactions.find(r => r.sender_key === myPk && r.emoji === emoji)
     try {
-      if (existing) {
-        await removeReaction(msgId, activeChat.id, emoji)
-      } else {
-        await addReaction(msgId, activeChat.id, emoji)
-      }
-    } catch (e) { console.error(e) }
+      if (existing) await removeReaction(msgId, activeChat.id, emoji)
+      else await addReaction(msgId, activeChat.id, emoji)
+    } catch {}
     setReactionPickerMsgId(null)
     setContextMenu(null)
   }
@@ -239,78 +232,82 @@ export default function ChatWindow() {
   if (!activeChat) return null
 
   return (
-    <div style={s.root} onClick={() => { setShowEmoji(false) }}>
-      {/* ── Шапка ── */}
+    <div style={s.root} onClick={() => setShowEmoji(false)}>
+      {/* ── Header ── */}
       <div style={s.header}>
-        <div style={s.headerAvatar} onClick={() => !isGroup && contact && setShowProfile(true)}>
-          {isGroup ? '👥' : (displayName as string)?.charAt(0).toUpperCase()}
-          {!isGroup && contact && <span className={`status-dot ${contact.status}`} style={s.headerDot} />}
+        <div
+          style={s.headerAvatar}
+          onClick={() => !isGroup && contact && setShowProfile(true)}
+        >
+          {avatarLetter}
+          {!isGroup && contact && (
+            <span className={`status-dot ${contact.status}`} style={s.headerDot} />
+          )}
         </div>
+
         <div style={s.headerInfo}>
           <div style={s.headerName}>{displayName}</div>
           <div style={s.headerSub}>
             {isGroup
-              ? <span style={{ color: 'var(--text-muted)' }}>{groupMembers.length} участн.</span>
+              ? <span>{groupMembers.length} участн.</span>
               : isTyping
                 ? <span style={{ color: 'var(--online)', fontStyle: 'italic' }}>печатает...</span>
                 : contact
                   ? statusLabel(contact.status, contact.status_text)
-                  : <span style={{ color: 'var(--text-muted)' }}>{activeChat.peer_key?.slice(0, 24)}...</span>
+                  : <span>{activeChat.peer_key?.slice(0, 24)}…</span>
             }
           </div>
-          {isGroup && groupMembers.length > 0 && (
-            <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
-              {groupMembers.slice(0, 8).map(m => (
-                <div key={m.public_key} title={m.nickname} style={{
-                  width: 20, height: 20, borderRadius: '50%',
-                  background: 'var(--accent)', color: 'white',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 10, fontWeight: 700, flexShrink: 0,
-                  border: '1px solid var(--bg-secondary)',
-                }}>
-                  {m.nickname.charAt(0).toUpperCase()}
-                </div>
-              ))}
-              {groupMembers.length > 8 && (
-                <div style={{
-                  width: 20, height: 20, borderRadius: '50%',
-                  background: 'var(--bg-tertiary)', color: 'var(--text-muted)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 9, flexShrink: 0,
-                }}>+{groupMembers.length - 8}</div>
-              )}
-            </div>
-          )}
         </div>
+
         <div style={s.headerActions}>
           {!isGroup && contact && (
-            <button className="btn-icon" title="Профиль" onClick={() => setShowProfile(true)}>👤</button>
+            <button className="btn-icon" title="Профиль" onClick={() => setShowProfile(true)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </button>
           )}
           {!isGroup && (
             <button className="btn-icon" title="Удалить чат"
-              style={{ fontSize: 15, color: 'var(--error,#e53e3e)' }}
-              onClick={handleDeleteChat}>🗑</button>
+              style={{ color: '#e53e3e' }} onClick={handleDeleteChat}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
+                <path d="M9 6V4h6v2"/>
+              </svg>
+            </button>
           )}
           {isGroup && (
             <>
-              <button className="btn-icon" title="Покинуть группу" onClick={handleLeaveGroup}
-                style={{ fontSize: 15 }}>🚪</button>
+              <button className="btn-icon" title="Покинуть группу" onClick={handleLeaveGroup}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+              </button>
               {isGroupAdmin && (
                 <button className="btn-icon" title="Удалить группу"
-                  style={{ fontSize: 15, color: 'var(--error,#e53e3e)' }}
-                  onClick={handleDeleteGroup}>🗑</button>
+                  style={{ color: '#e53e3e' }} onClick={handleDeleteGroup}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/>
+                  </svg>
+                </button>
               )}
             </>
           )}
         </div>
       </div>
 
-      {/* ── Сообщения ── */}
+      {/* ── Message list ── */}
       <div style={s.messages}>
         {messages.length === 0 && (
           <div style={s.noMessages}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center' }}>
+            <svg width="52" height="52" viewBox="0 0 24 24" fill="none"
+              stroke="rgba(255,255,255,0.6)" strokeWidth="1.5" style={{ marginBottom: 12 }}>
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, textAlign: 'center', lineHeight: 1.5 }}>
               Сообщения зашифрованы E2E.<br />Напишите первое сообщение!
             </div>
           </div>
@@ -318,28 +315,26 @@ export default function ChatWindow() {
 
         {grouped.map(({ date, msgs }) => (
           <div key={date}>
-            <DateDivider date={date} />
+            {/* Date separator */}
+            <div className="date-separator"><span>{date}</span></div>
+
             {msgs.map(msg => {
               if (msg.content_type === 'system') {
                 return (
-                  <div key={msg.id} style={{
-                    textAlign: 'center', padding: '4px 16px',
-                    fontSize: 12, color: 'var(--text-muted)',
-                    fontStyle: 'italic',
-                  }}>
-                    — {msg.content} —
+                  <div key={msg.id} style={s.systemMsg}>
+                    {msg.content}
                   </div>
                 )
               }
               const isMine = msg.sender_key === identity?.public_key
-              const text = decryptedMessages[msg.id] ?? ''
+              const msgText = decryptedMessages[msg.id] ?? ''
               const msgReactions = reactions[msg.id] ?? []
               return (
                 <MessageBubble
                   key={msg.id}
                   msg={msg}
                   isMine={isMine}
-                  text={text}
+                  text={msgText}
                   msgReactions={msgReactions}
                   myPk={identity?.public_key ?? ''}
                   isEditing={editingId === msg.id}
@@ -347,7 +342,7 @@ export default function ChatWindow() {
                   onEditChange={setEditText}
                   onEditSubmit={submitEdit}
                   onEditCancel={() => setEditingId(null)}
-                  onContextMenu={(e) => handleRightClick(e, msg, isMine, text)}
+                  onContextMenu={(e) => handleRightClick(e, msg, isMine, msgText)}
                   onReact={(emoji) => handleReact(msg.id, emoji)}
                   showReactionPicker={reactionPickerMsgId === msg.id}
                   onToggleReactionPicker={(e) => {
@@ -378,17 +373,27 @@ export default function ChatWindow() {
         </div>
       )}
 
-      {/* ── Поле ввода ── */}
-      <div style={s.inputArea}>
+      {/* ── Compose bar ── */}
+      <div style={s.composeBar}>
         <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileSelect} />
-        <button className="btn-icon" title="Прикрепить файл" style={{ fontSize: 16, flexShrink: 0 }}
-          onClick={() => fileInputRef.current?.click()}>📎</button>
-        <button className="btn-icon" title="Emoji" style={{ fontSize: 18, flexShrink: 0 }}
-          onClick={e => { e.stopPropagation(); setShowEmoji(v => !v) }}>😊</button>
-        <button
-          className="btn-icon"
-          title="Вставить блок кода (```)"
-          style={{ fontSize: 13, flexShrink: 0, fontFamily: 'monospace', fontWeight: 700 }}
+
+        <button className="btn-icon" title="Прикрепить файл" style={s.composeBtn}
+          onClick={() => fileInputRef.current?.click()}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+          </svg>
+        </button>
+
+        <button className="btn-icon" title="Emoji" style={s.composeBtn}
+          onClick={e => { e.stopPropagation(); setShowEmoji(v => !v) }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/>
+            <line x1="15" y1="9" x2="15.01" y2="9"/>
+          </svg>
+        </button>
+
+        <button className="btn-icon" title="Вставить блок кода" style={{ ...s.composeBtn, fontFamily: 'monospace', fontSize: 13, fontWeight: 700, width: 34, height: 34 }}
           onClick={() => {
             const ta = textareaRef.current
             if (!ta) { setText(t => t + '```\n\n```'); return }
@@ -402,24 +407,35 @@ export default function ChatWindow() {
               ta.setSelectionRange(cur, cur)
               ta.focus()
             })
-          }}
-        >{`</>`}</button>
-        <textarea
-          ref={textareaRef}
-          style={s.textarea}
-          placeholder="Напишите сообщение... (Enter — отправить, Shift+Enter — новая строка)"
-          value={text}
-          onChange={handleTextChange}
-          onKeyDown={handleKeyDown}
-          rows={1}
-        />
+          }}>
+          {'</>'}
+        </button>
+
+        <div style={s.textareaWrap}>
+          <textarea
+            ref={textareaRef}
+            style={s.textarea}
+            placeholder="Сообщение"
+            value={text}
+            onChange={handleTextChange}
+            onKeyDown={handleKeyDown}
+            rows={1}
+          />
+        </div>
+
         <button
-          className="btn-primary"
-          style={{ ...s.sendBtn, opacity: (!text.trim() || sending) ? 0.5 : 1 }}
+          style={{
+            ...s.sendBtn,
+            background: text.trim() ? 'var(--accent)' : 'var(--bg-tertiary)',
+            color: text.trim() ? '#fff' : 'var(--text-muted)',
+          }}
           onClick={handleSend}
           disabled={!text.trim() || sending}
+          title="Отправить"
         >
-          {sending ? '…' : '▶'}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
         </button>
       </div>
 
@@ -428,12 +444,11 @@ export default function ChatWindow() {
         <div
           style={{
             ...s.contextMenu,
-            left: Math.min(contextMenu.x, window.innerWidth - 180),
-            top: Math.min(contextMenu.y, window.innerHeight - 200),
+            left: Math.min(contextMenu.x, window.innerWidth - 190),
+            top: Math.min(contextMenu.y, window.innerHeight - 210),
           }}
           onClick={e => e.stopPropagation()}
         >
-          {/* Quick reactions */}
           <div style={s.contextReactions}>
             {QUICK_REACTIONS.map(emoji => (
               <button key={emoji} style={s.contextReactionBtn}
@@ -444,15 +459,17 @@ export default function ChatWindow() {
           <button style={s.ctxItem} onClick={() => {
             navigator.clipboard.writeText(contextMenu.text)
             setContextMenu(null)
-          }}>📋 Копировать</button>
-          <button style={s.ctxItem} onClick={() => handleForward(contextMenu.text)}>↗ Переслать</button>
+          }}>Копировать</button>
+          <button style={s.ctxItem} onClick={() => handleForward(contextMenu.text)}>Переслать</button>
           {contextMenu.isMine && !messages.find(m => m.id === contextMenu.msgId)?.is_deleted && (
             <>
               <button style={s.ctxItem} onClick={() => startEdit(contextMenu.msgId, contextMenu.text)}>
-                ✏️ Редактировать
+                Редактировать
               </button>
-              <button style={{ ...s.ctxItem, color: 'var(--error, #e53e3e)' }}
-                onClick={() => handleDelete(contextMenu.msgId)}>🗑 Удалить</button>
+              <button style={{ ...s.ctxItem, color: '#e53e3e' }}
+                onClick={() => handleDelete(contextMenu.msgId)}>
+                Удалить
+              </button>
             </>
           )}
         </div>
@@ -471,7 +488,6 @@ export default function ChatWindow() {
         />
       )}
 
-      {/* ── Профиль контакта ── */}
       {showProfile && contact && (
         <ContactProfile contact={contact} onClose={() => setShowProfile(false)} />
       )}
@@ -479,34 +495,29 @@ export default function ChatWindow() {
   )
 }
 
-// ─── renderMessageText — code blocks + inline code ────────────────────────────
+// ─── renderMessageText ─────────────────────────────────────────────────────────
 
 function renderMessageText(text: string): React.ReactNode {
   const nodes: React.ReactNode[] = []
-  // Split by fenced code blocks first
   const fencedRe = /```([^\n]*)\n?([\s\S]*?)```/g
   let last = 0
   let match: RegExpExecArray | null
   let key = 0
   while ((match = fencedRe.exec(text)) !== null) {
-    if (match.index > last) {
-      nodes.push(...renderInlineCode(text.slice(last, match.index), key++))
-    }
+    if (match.index > last) nodes.push(...renderInlineCode(text.slice(last, match.index), key++))
     nodes.push(
       <pre key={key++} style={{
-        background: 'var(--bg-primary)', border: '1px solid var(--border)',
+        background: 'rgba(0,0,0,0.08)', border: '1px solid rgba(0,0,0,0.10)',
         borderRadius: 6, padding: '8px 10px', margin: '4px 0',
         fontSize: 12, fontFamily: 'monospace', overflowX: 'auto',
-        whiteSpace: 'pre', color: 'var(--text-primary)',
+        whiteSpace: 'pre', color: 'inherit',
       }}>
         <code>{match[2]}</code>
       </pre>
     )
     last = match.index + match[0].length
   }
-  if (last < text.length) {
-    nodes.push(...renderInlineCode(text.slice(last), key++))
-  }
+  if (last < text.length) nodes.push(...renderInlineCode(text.slice(last), key++))
   return <>{nodes}</>
 }
 
@@ -516,7 +527,7 @@ function renderInlineCode(text: string, baseKey: number): React.ReactNode[] {
     if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
       return (
         <code key={baseKey + '-' + i} style={{
-          background: 'rgba(0,0,0,0.12)', borderRadius: 3,
+          background: 'rgba(0,0,0,0.10)', borderRadius: 3,
           padding: '1px 4px', fontFamily: 'monospace', fontSize: 12,
         }}>
           {part.slice(1, -1)}
@@ -552,41 +563,47 @@ function MessageBubble({
   onContextMenu, onReact, showReactionPicker, onToggleReactionPicker,
 }: BubbleProps) {
   const time = new Date(msg.timestamp * 1000).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
-
-  // Group reactions by emoji
   const reactionGroups = groupReactions(msgReactions, myPk)
 
   let fileContent: { file_name?: string; mime_type?: string; data?: string } | null = null
   if ((msg.content_type === 'file' || msg.content_type === 'image') && !msg.is_deleted && msg.edited_at === null) {
-    try { fileContent = JSON.parse(text) } catch { /* not yet parsed */ }
+    try { fileContent = JSON.parse(text) } catch {}
   }
+
+  const isImage = fileContent?.mime_type?.startsWith('image/') && fileContent.data
+  const isFile  = fileContent?.file_name && !isImage
 
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
       alignItems: isMine ? 'flex-end' : 'flex-start',
-      marginBottom: 4,
+      marginBottom: 2,
       padding: '0 12px',
       position: 'relative',
     }}>
-      <div style={{ position: 'relative', maxWidth: '68%' }}>
-        {/* React button on hover */}
+      <div style={{ position: 'relative', maxWidth: 460 }}>
+        {/* Hover react button */}
         <button
           style={{
             ...s.reactBtn,
-            [isMine ? 'left' : 'right']: '100%',
-            [isMine ? 'marginRight' : 'marginLeft']: 4,
+            ...(isMine ? { right: '100%', marginRight: 4 } : { left: '100%', marginLeft: 4 }),
           }}
           onClick={onToggleReactionPicker}
           title="Реакция"
-        >😊</button>
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+            <line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+          </svg>
+        </button>
 
         {/* Reaction picker */}
         {showReactionPicker && (
           <div style={{
             ...s.reactionPicker,
-            [isMine ? 'right' : 'left']: 0,
+            ...(isMine ? { right: 0 } : { left: 0 }),
           }}>
             {QUICK_REACTIONS.map(emoji => (
               <button key={emoji} style={s.emojiBtn} onClick={() => onReact(emoji)}>{emoji}</button>
@@ -601,16 +618,17 @@ function MessageBubble({
         {/* Bubble */}
         <div
           style={{
-            background: isMine ? 'var(--bubble-self)' : 'var(--bubble-other)',
-            color: isMine ? 'var(--bubble-self-text)' : 'var(--bubble-other-text)',
-            borderRadius: isMine ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-            padding: fileContent?.mime_type?.startsWith('image/') ? '4px' : '8px 12px',
-            boxShadow: '0 1px 3px var(--shadow)',
-            border: isMine ? 'none' : '1px solid var(--border)',
+            background: isMine ? 'var(--bubble-out-bg)' : 'var(--bubble-in-bg)',
+            color: isMine ? 'var(--bubble-out-text)' : 'var(--bubble-in-text)',
+            borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+            padding: isImage ? 4 : '8px 12px 22px',
+            boxShadow: '0 1px 2px var(--shadow)',
             wordBreak: 'break-word',
             cursor: 'default',
             overflow: 'hidden',
             opacity: msg.is_deleted ? 0.6 : 1,
+            position: 'relative',
+            minWidth: 60,
           }}
           onContextMenu={onContextMenu}
           onClick={onContextMenu}
@@ -632,31 +650,35 @@ function MessageBubble({
                 <button className="btn-icon" style={{ fontSize: 11 }} onClick={onEditCancel}>✕</button>
               </div>
             </div>
-          ) : fileContent?.mime_type?.startsWith('image/') && fileContent.data ? (
-            <div>
+          ) : isImage ? (
+            <>
               <img
-                src={`data:${fileContent.mime_type};base64,${fileContent.data}`}
-                style={{ maxWidth: 260, maxHeight: 260, borderRadius: 10, display: 'block' }}
-                alt={fileContent.file_name}
+                src={`data:${fileContent!.mime_type};base64,${fileContent!.data}`}
+                style={{ maxWidth: 280, maxHeight: 280, borderRadius: 14, display: 'block' }}
+                alt={fileContent!.file_name}
               />
-              <div style={{ padding: '4px 8px', fontSize: 11, opacity: 0.7, display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+              <div style={{ padding: '4px 6px 2px', fontSize: 11, display: 'flex', justifyContent: 'flex-end', gap: 4,
+                color: isMine ? 'var(--bubble-out-meta)' : 'var(--bubble-in-meta)' }}>
                 <span>{time}</span>
                 {isMine && <StatusIcon status={msg.status} />}
               </div>
-            </div>
-          ) : fileContent?.file_name ? (
-            <div>
-              <a href={fileContent.data ? `data:${fileContent.mime_type};base64,${fileContent.data}` : '#'}
-                download={fileContent.file_name}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', color: 'inherit', padding: '4px 0' }}>
-                <span style={{ fontSize: 24 }}>📎</span>
-                <span style={{ fontSize: 13, flex: 1 }}>{fileContent.file_name}</span>
+            </>
+          ) : isFile ? (
+            <>
+              <a href={fileContent!.data ? `data:${fileContent!.mime_type};base64,${fileContent!.data}` : '#'}
+                download={fileContent!.file_name}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', color: 'inherit', padding: '2px 0' }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                </svg>
+                <span style={{ fontSize: 13, flex: 1 }}>{fileContent!.file_name}</span>
               </a>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginTop: 4, fontSize: 10, opacity: 0.7 }}>
+              {/* meta inside bubble — positioned at bottom */}
+              <div className="bubble-meta" style={{ color: isMine ? 'var(--bubble-out-meta)' : 'var(--bubble-in-meta)' }}>
                 <span>{time}</span>
                 {isMine && <StatusIcon status={msg.status} />}
               </div>
-            </div>
+            </>
           ) : (
             <>
               <div style={{
@@ -664,13 +686,17 @@ function MessageBubble({
                 fontStyle: msg.is_deleted ? 'italic' : 'normal',
                 color: msg.is_deleted ? 'var(--text-muted)' : undefined,
               }}>
-                {text ? renderMessageText(text) : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>расшифровка...</span>}
+                {text
+                  ? renderMessageText(text)
+                  : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>расшифровка...</span>
+                }
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 3 }}>
+              {/* Meta overlay — bottom right */}
+              <div className="bubble-meta" style={{ color: isMine ? 'var(--bubble-out-meta)' : 'var(--bubble-in-meta)' }}>
                 {msg.edited_at && !msg.is_deleted && (
-                  <span style={{ fontSize: 9, opacity: 0.6 }}>изменено</span>
+                  <span style={{ fontSize: 10, opacity: 0.8 }}>изм.</span>
                 )}
-                <span style={{ fontSize: 10, color: isMine ? 'rgba(0,0,0,0.4)' : 'var(--text-muted)' }}>{time}</span>
+                <span>{time}</span>
                 {isMine && <StatusIcon status={msg.status} />}
               </div>
             </>
@@ -686,11 +712,10 @@ function MessageBubble({
                 style={{
                   ...s.reactionPill,
                   background: mine ? 'var(--accent)' : 'var(--bg-secondary)',
-                  color: mine ? 'white' : 'var(--text-primary)',
+                  color: mine ? '#fff' : 'var(--text-primary)',
                   border: mine ? 'none' : '1px solid var(--border)',
                 }}
                 onClick={() => onReact(emoji)}
-                title={mine ? 'Убрать реакцию' : 'Добавить реакцию'}
               >
                 {emoji} {count}
               </button>
@@ -702,6 +727,8 @@ function MessageBubble({
   )
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
 function groupReactions(reactions: { sender_key: string; emoji: string }[], myPk?: string) {
   const map = new Map<string, { count: number; mine: boolean }>()
   for (const r of reactions) {
@@ -712,8 +739,6 @@ function groupReactions(reactions: { sender_key: string; emoji: string }[], myPk
   }
   return Array.from(map.entries()).map(([emoji, { count, mine }]) => ({ emoji, count, mine }))
 }
-
-// ─── Forward Dialog ────────────────────────────────────────────────────────────
 
 function ForwardDialog({
   text, contacts, onClose, onForward
@@ -728,35 +753,31 @@ function ForwardDialog({
     <div style={s.modalOverlay} onClick={onClose}>
       <div style={s.modal} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{ fontWeight: 600, fontSize: 15 }}>↗ Переслать сообщение</span>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>Переслать сообщение</span>
           <button className="btn-icon" onClick={onClose}>✕</button>
         </div>
         <div style={{
-          background: 'var(--bg-primary)', borderRadius: 8, padding: '6px 8px',
+          background: 'var(--bg-secondary)', borderRadius: 8, padding: '6px 10px',
           fontSize: 12, color: 'var(--text-muted)', marginBottom: 10,
-          maxHeight: 60, overflow: 'hidden', textOverflow: 'ellipsis',
+          maxHeight: 60, overflow: 'hidden',
         }}>
           {text.slice(0, 120)}{text.length > 120 ? '...' : ''}
         </div>
         <input
-          style={{ ...s.textarea, minHeight: 32, marginBottom: 8 }}
+          style={{ width: '100%', marginBottom: 8 }}
           placeholder="Поиск контактов..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <div style={{ maxHeight: 250, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 260, overflowY: 'auto' }}>
           {filtered.map(c => (
-            <button
-              key={c.public_key}
-              style={s.forwardContact}
-              onClick={() => onForward(c.public_key)}
-            >
+            <button key={c.public_key} style={s.forwardContact} onClick={() => onForward(c.public_key)}>
               <span style={s.forwardAvatar}>{(c.local_alias ?? c.nickname).charAt(0).toUpperCase()}</span>
               <span>{c.local_alias ?? c.nickname}</span>
             </button>
           ))}
           {filtered.length === 0 && (
-            <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
               Контакты не найдены
             </div>
           )}
@@ -766,15 +787,13 @@ function ForwardDialog({
   )
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-
 function TypingDots() {
   return (
-    <div style={{ display: 'flex', gap: 3, alignItems: 'center', padding: '2px 4px' }}>
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '4px 2px' }}>
       {[0, 1, 2].map(i => (
         <div key={i} style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: 'var(--text-muted)',
+          width: 7, height: 7, borderRadius: '50%',
+          background: 'var(--bubble-in-meta)',
           animation: `pulse 1.2s ${i * 0.2}s infinite`,
         }} />
       ))}
@@ -783,20 +802,19 @@ function TypingDots() {
 }
 
 function StatusIcon({ status }: { status: string }) {
+  const isRead = status === 'read'
   return (
-    <span style={{ fontSize: 10, color: status === 'read' ? 'var(--online)' : 'rgba(0,0,0,0.4)' }}>
-      {status === 'sent' ? '✓' : '✓✓'}
+    <span className={`bubble-tick ${isRead ? 'read' : 'unread'}`}>
+      <svg viewBox="0 0 16 11" fill="none">
+        {status !== 'sent'
+          ? <>
+              <path d="M1 5.5L5.5 10L15 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M4 5.5L8.5 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </>
+          : <path d="M1 5.5L5.5 10L15 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        }
+      </svg>
     </span>
-  )
-}
-
-function DateDivider({ date }: { date: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px 6px' }}>
-      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-      <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{date}</span>
-      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-    </div>
   )
 }
 
@@ -820,166 +838,188 @@ function formatDate(ts: number): string {
 }
 
 function statusLabel(status: string, text?: string | null): React.ReactNode {
-  if (text) return <span style={{ color: 'var(--text-muted)' }}>{text}</span>
+  if (text) return <span>{text}</span>
   const map: Record<string, string> = {
-    online: 'Онлайн', away: 'Отошёл', busy: 'Занят', offline: 'Не в сети'
+    online: 'в сети', away: 'отошёл', busy: 'занят', offline: 'не в сети'
   }
   return (
-    <span style={{ color: status === 'online' ? 'var(--online)' : 'var(--text-muted)' }}>
+    <span style={{ color: status === 'online' ? 'var(--online)' : undefined }}>
       {map[status] ?? status}
     </span>
   )
 }
 
+// ─── Styles ────────────────────────────────────────────────────────────────────
+
 const s: Record<string, React.CSSProperties> = {
   root: {
     display: 'flex', flexDirection: 'column',
-    height: '100vh', background: 'var(--bg-primary)',
+    height: '100vh',
+    background: 'var(--bg-chat)',
     position: 'relative',
+    flex: 1, minWidth: 0,
   },
   header: {
     display: 'flex', alignItems: 'center', gap: 10,
     padding: '10px 14px',
-    borderBottom: '1px solid var(--border)',
-    background: 'var(--bg-secondary)', flexShrink: 0,
-    boxShadow: '0 1px 4px var(--shadow)',
+    borderBottom: '1px solid var(--divider)',
+    background: 'var(--header-bg)',
+    flexShrink: 0,
+    boxShadow: '0 1px 3px var(--shadow)',
+    zIndex: 10,
   },
   headerAvatar: {
-    width: 38, height: 38, borderRadius: '50%',
-    background: 'var(--accent)', color: 'white',
+    width: 40, height: 40, borderRadius: '50%',
+    background: 'var(--accent)', color: '#fff',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontWeight: 700, fontSize: 17, position: 'relative',
-    flexShrink: 0, cursor: 'pointer',
+    flexShrink: 0, cursor: 'pointer', userSelect: 'none',
   },
   headerDot: {
-    position: 'absolute', bottom: 0, right: 0,
-    width: 11, height: 11, border: '2px solid var(--bg-secondary)', borderRadius: '50%',
+    position: 'absolute', bottom: 1, right: 1,
+    width: 11, height: 11,
+    border: '2px solid var(--header-bg)',
+    borderRadius: '50%',
   },
-  headerInfo: { flex: 1 },
-  headerName: { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' },
-  headerSub: { fontSize: 12, marginTop: 1 },
-  headerActions: { display: 'flex', gap: 4 },
+  headerInfo: { flex: 1, minWidth: 0 },
+  headerName: {
+    fontSize: 15, fontWeight: 700,
+    color: 'var(--header-text)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  headerSub: {
+    fontSize: 12, marginTop: 1,
+    color: 'var(--header-sub)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  headerActions: { display: 'flex', gap: 2, flexShrink: 0 },
   messages: {
     flex: 1, overflowY: 'auto',
     display: 'flex', flexDirection: 'column',
-    paddingTop: 8, paddingBottom: 8,
+    paddingTop: 12, paddingBottom: 8,
   },
   noMessages: {
     flex: 1, display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center',
     padding: 40, marginTop: 60,
   },
+  systemMsg: {
+    textAlign: 'center', padding: '4px 16px',
+    fontSize: 12, color: 'rgba(255,255,255,0.6)',
+    fontStyle: 'italic',
+  },
   typingBubble: {
-    background: 'var(--bubble-other)',
-    border: '1px solid var(--border)',
-    borderRadius: '16px 16px 16px 4px',
-    padding: '8px 12px',
-    boxShadow: '0 1px 3px var(--shadow)',
+    background: 'var(--bubble-in-bg)',
+    borderRadius: '18px 18px 18px 4px',
+    padding: '10px 14px',
+    boxShadow: '0 1px 2px var(--shadow)',
   },
   emojiPicker: {
     display: 'flex', flexWrap: 'wrap', gap: 2,
-    padding: '8px', background: 'var(--bg-secondary)',
-    borderTop: '1px solid var(--border)',
-    maxHeight: 140, overflowY: 'auto',
+    padding: '10px 12px',
+    background: 'var(--header-bg)',
+    borderTop: '1px solid var(--divider)',
+    maxHeight: 148, overflowY: 'auto',
     flexShrink: 0,
   },
   emojiBtn: {
     background: 'transparent', border: 'none',
     fontSize: 22, cursor: 'pointer',
     borderRadius: 6, padding: '3px',
-    transition: 'background 0.1s',
   },
-  inputArea: {
+  composeBar: {
     display: 'flex', alignItems: 'flex-end', gap: 6,
-    padding: '8px 10px',
-    borderTop: '1px solid var(--border)',
-    background: 'var(--bg-secondary)', flexShrink: 0,
+    padding: '8px 10px 10px',
+    background: 'var(--header-bg)',
+    borderTop: '1px solid var(--divider)',
+    flexShrink: 0,
+  },
+  composeBtn: { width: 36, height: 36, flexShrink: 0 },
+  textareaWrap: {
+    flex: 1, minWidth: 0,
+    background: 'var(--input-compose-bg)',
+    border: '1px solid var(--input-border)',
+    borderRadius: 20,
+    padding: '6px 14px',
+    display: 'flex', alignItems: 'center',
   },
   textarea: {
-    flex: 1, resize: 'none', maxHeight: 120, minHeight: 36,
-    border: '1px solid var(--input-border)',
-    borderRadius: 12, padding: '8px 12px',
-    fontSize: 14, lineHeight: 1.4, overflowY: 'auto',
-    overflowX: 'hidden',
-    background: 'var(--bg-primary)', color: 'var(--text-primary)',
+    flex: 1, resize: 'none', maxHeight: 120, minHeight: 22,
+    background: 'transparent', border: 'none', outline: 'none',
+    fontSize: 14, fontFamily: 'inherit',
+    color: 'var(--text-primary)',
+    lineHeight: 1.45,
+    width: '100%',
   },
   sendBtn: {
-    width: 38, height: 38, padding: 0,
-    borderRadius: 10, flexShrink: 0,
+    width: 40, height: 40, borderRadius: '50%',
+    border: 'none', cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: 14, fontWeight: 700,
-    transition: 'opacity 0.15s',
+    flexShrink: 0,
+    transition: 'background 0.15s',
+  },
+  reactBtn: {
+    position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+    borderRadius: '50%', width: 28, height: 28,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', opacity: 0, transition: 'opacity 0.15s',
+    color: 'var(--text-secondary)',
+    zIndex: 2,
+  },
+  reactionPicker: {
+    position: 'absolute', bottom: '100%', zIndex: 100,
+    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+    borderRadius: 12, padding: '8px',
+    boxShadow: '0 4px 20px var(--shadow-md)',
+    display: 'flex', flexWrap: 'wrap', gap: 2, maxWidth: 220,
+  },
+  reactionPill: {
+    borderRadius: 10, padding: '2px 7px', fontSize: 13,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3,
   },
   contextMenu: {
-    position: 'fixed', zIndex: 1000,
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border)',
-    borderRadius: 10,
-    boxShadow: '0 4px 16px var(--shadow)',
-    minWidth: 170,
-    overflow: 'hidden',
-    padding: '4px 0',
+    position: 'fixed', zIndex: 9999,
+    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+    borderRadius: 12, padding: '6px 0',
+    boxShadow: '0 4px 24px var(--shadow-md)',
+    minWidth: 180,
   },
   contextReactions: {
     display: 'flex', gap: 2, padding: '6px 8px',
   },
   contextReactionBtn: {
     background: 'transparent', border: 'none',
-    fontSize: 20, cursor: 'pointer',
-    borderRadius: 6, padding: '2px 4px',
+    fontSize: 22, cursor: 'pointer', borderRadius: 6, padding: '3px',
   },
-  ctxDivider: {
-    height: 1, background: 'var(--border)', margin: '2px 0',
-  },
+  ctxDivider: { height: 1, background: 'var(--divider)', margin: '2px 0' },
   ctxItem: {
     display: 'block', width: '100%', textAlign: 'left',
-    padding: '7px 14px', fontSize: 13,
-    background: 'transparent', border: 'none', cursor: 'pointer',
-    color: 'var(--text-primary)',
-  },
-  reactBtn: {
-    position: 'absolute', top: '50%', transform: 'translateY(-50%)',
-    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-    fontSize: 13, cursor: 'pointer', opacity: 0.7,
-    borderRadius: '50%', padding: '2px 4px',
-    zIndex: 1,
-  },
-  reactionPicker: {
-    position: 'absolute', top: '100%', zIndex: 100,
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border)',
-    borderRadius: 10,
-    boxShadow: '0 4px 16px var(--shadow)',
-    padding: '6px',
-    display: 'flex', flexWrap: 'wrap', gap: 2,
-    maxWidth: 220, maxHeight: 200, overflowY: 'auto',
-  },
-  reactionPill: {
-    border: 'none', borderRadius: 12,
-    padding: '2px 8px', fontSize: 13,
-    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3,
+    padding: '9px 16px', background: 'none', border: 'none',
+    cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)',
   },
   modalOverlay: {
-    position: 'fixed', inset: 0, zIndex: 2000,
+    position: 'fixed', inset: 0, zIndex: 9000,
     background: 'rgba(0,0,0,0.4)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   modal: {
-    background: 'var(--bg-secondary)',
-    borderRadius: 14, padding: 20, width: 340,
-    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+    background: 'var(--bg-primary)', borderRadius: 16,
+    padding: '20px', width: 360, maxHeight: '80vh',
+    display: 'flex', flexDirection: 'column',
+    boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
   },
   forwardContact: {
     display: 'flex', alignItems: 'center', gap: 10,
-    width: '100%', padding: '8px 10px',
+    width: '100%', padding: '9px 12px',
     background: 'transparent', border: 'none',
-    borderRadius: 8, cursor: 'pointer',
-    fontSize: 14, color: 'var(--text-primary)',
+    cursor: 'pointer', borderRadius: 8,
+    fontSize: 13, color: 'var(--text-primary)',
     textAlign: 'left',
   },
   forwardAvatar: {
-    width: 32, height: 32, borderRadius: '50%',
-    background: 'var(--accent)', color: 'white',
+    width: 34, height: 34, borderRadius: '50%',
+    background: 'var(--accent)', color: '#fff',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontWeight: 700, fontSize: 14, flexShrink: 0,
   },

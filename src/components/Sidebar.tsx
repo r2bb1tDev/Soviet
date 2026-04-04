@@ -39,12 +39,11 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     invoke<any>('get_settings').then(s => { if (s.custom_id) setCustomId(s.custom_id) }).catch(() => {})
   }, [])
   useEffect(() => {
-    const close = () => setChannelCtxMenu(null)
+    const close = () => { setChannelCtxMenu(null); setShowStatusMenu(false) }
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
 
-  // Показываем первый ожидающий запрос
   const pendingRequest = contactRequests[0] ?? null
 
   const filtered = useMemo(() => {
@@ -78,13 +77,9 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   }
 
   const displayName = (c: Contact) => c.local_alias ?? c.nickname
-
-  const unreadFor = (pk: string) => chatForContact(pk)?.unread_count ?? 0
-
-  const lastMessageFor = (pk: string) => {
-    const ch = chatForContact(pk)
-    return ch?.last_message ?? null
-  }
+  const unreadFor   = (pk: string) => chatForContact(pk)?.unread_count ?? 0
+  const lastMsgFor  = (pk: string) => chatForContact(pk)?.last_message ?? null
+  const lastTimeFor = (pk: string) => chatForContact(pk)?.last_message_time ?? null
 
   const handleContextMenu = (e: React.MouseEvent, contact: Contact) => {
     e.preventDefault()
@@ -115,47 +110,43 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     { key: 'offline', label: 'Невидимка' },
   ]
 
+  const totalChannelUnread = channels.reduce((n, c) => n + c.unread_count, 0)
+
   return (
     <div style={s.root}>
-      {/* ── Шапка ── */}
+      {/* ── Header ── */}
       <div style={s.header}>
-        <div style={s.avatar}>
+        <div style={s.headerAvatar} className="avatar-wrap">
           {myAvatar
-            ? <img src={myAvatar} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
-            : <BearLogo size={34} />
+            ? <img src={myAvatar} style={s.avatarImg} />
+            : <BearLogo size={36} />
           }
         </div>
         <div style={s.headerInfo}>
-          <div style={s.myNick}>{identity?.nickname ?? 'Soviet'}</div>
-          {customId && (
-            <div style={{ ...s.myShortId, color: '#9b59b6' }}>@{customId}</div>
-          )}
-          <div style={s.statusBadge} onClick={() => setShowStatusMenu(v => !v)}>
-            <span className={`status-dot ${myStatus}`} />
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
-              {{ online:'Онлайн', away:'Отошёл', busy:'Занят', offline:'Невидимка' }[myStatus] ?? myStatus}
-              {' ▾'}
-            </span>
-          </div>
-          {showStatusMenu && (
-            <div style={s.statusMenu}>
-              {statuses.map(st => (
-                <div key={st.key} style={s.statusItem}
-                  onClick={() => { setMyStatus(st.key); setShowStatusMenu(false) }}>
-                  <span className={`status-dot ${st.key}`} />
-                  <span>{st.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={s.myNick} className="truncate">{identity?.nickname ?? 'Soviet'}</div>
+          {customId && <div style={s.myId}>@{customId}</div>}
         </div>
-        <button className="btn-icon" onClick={() => setPage('settings')} title="Настройки">⚙️</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <button className="btn-icon" title="Поиск" style={s.headerBtn}
+            onClick={() => setShowUserSearch(true)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </button>
+          <button className="btn-icon" title="Настройки" style={s.headerBtn}
+            onClick={() => setPage('settings')}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* ── Уведомление о запросе контакта ── */}
+      {/* ── Contact request banner ── */}
       {pendingRequest && (
         <div style={s.requestBanner} onClick={() => setShowRequest(true)}>
-          <span style={{ fontSize: 14 }}>👤</span>
+          <div style={s.requestDot} />
           <span style={{ fontSize: 12, flex: 1 }}>
             <b>{pendingRequest.nickname}</b> хочет добавить вас
           </span>
@@ -163,43 +154,45 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
         </div>
       )}
 
-      {/* ── Вкладки Чаты / Каналы ── */}
+      {/* ── Search bar ── */}
+      <div style={s.searchWrap}>
+        <div style={s.searchInner}>
+          <svg style={s.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            style={s.search}
+            placeholder="Поиск"
+            value={tab === 'chats' ? sidebarSearch : channelSearch}
+            onChange={e => tab === 'chats' ? setSidebarSearch(e.target.value) : setChannelSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
       <div style={s.tabs}>
-        <button className={tab === 'chats' ? 'btn-primary' : 'btn-secondary'}
-          style={s.tabBtn} onClick={() => setTab('chats')}>
-          💬 Чаты
+        <button style={{ ...s.tabBtn, ...(tab === 'chats' ? s.tabActive : {}) }}
+          onClick={() => setTab('chats')}>
+          Чаты
         </button>
-        <button className={tab === 'channels' ? 'btn-primary' : 'btn-secondary'}
-          style={s.tabBtn} onClick={() => setTab('channels')}>
-          📡 Каналы
-          {channels.reduce((n, c) => n + c.unread_count, 0) > 0 && (
-            <span style={s.tabBadge}>{channels.reduce((n, c) => n + c.unread_count, 0)}</span>
+        <button style={{ ...s.tabBtn, ...(tab === 'channels' ? s.tabActive : {}), position: 'relative' }}
+          onClick={() => setTab('channels')}>
+          Каналы
+          {totalChannelUnread > 0 && (
+            <span className="unread-badge" style={{ position: 'absolute', top: 2, right: 4, fontSize: 10, minWidth: 16, height: 16 }}>
+              {totalChannelUnread > 99 ? '99+' : totalChannelUnread}
+            </span>
           )}
         </button>
       </div>
 
-      {tab === 'chats' && (
-        <>
-          {/* ── Поиск ── */}
-          <div style={s.searchWrap}>
-            <input
-              style={s.search}
-              placeholder="🔍  Поиск..."
-              value={sidebarSearch}
-              onChange={e => setSidebarSearch(e.target.value)}
-            />
-            <button className="btn-icon" title="Найти пользователя по ID"
-              style={{ flexShrink: 0, fontSize: 16 }}
-              onClick={() => setShowUserSearch(true)}>
-              🔎
-            </button>
-          </div>
-
-          {/* ── Список контактов ── */}
-          <div style={s.list}>
+      {/* ── List ── */}
+      <div style={s.list}>
+        {tab === 'chats' && (
+          <>
             {favorites.length > 0 && (
               <>
-                <SectionLabel>★ ИЗБРАННЫЕ</SectionLabel>
+                <SectionLabel>Избранные</SectionLabel>
                 {favorites.map(c => (
                   <ContactRow
                     key={c.public_key}
@@ -207,7 +200,8 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
                     active={activeChat?.peer_key === c.public_key}
                     unread={unreadFor(c.public_key)}
                     displayName={displayName(c)}
-                    lastMsg={lastMessageFor(c.public_key)}
+                    lastMsg={lastMsgFor(c.public_key)}
+                    lastTime={lastTimeFor(c.public_key)}
                     onClick={() => openChat(c)}
                     onContextMenu={e => handleContextMenu(e, c)}
                   />
@@ -217,7 +211,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 
             {regular.length > 0 && (
               <>
-                <SectionLabel>💬 КОНТАКТЫ</SectionLabel>
+                {favorites.length > 0 && <SectionLabel>Контакты</SectionLabel>}
                 {regular.map(c => (
                   <ContactRow
                     key={c.public_key}
@@ -225,7 +219,8 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
                     active={activeChat?.peer_key === c.public_key}
                     unread={unreadFor(c.public_key)}
                     displayName={displayName(c)}
-                    lastMsg={lastMessageFor(c.public_key)}
+                    lastMsg={lastMsgFor(c.public_key)}
+                    lastTime={lastTimeFor(c.public_key)}
                     onClick={() => openChat(c)}
                     onContextMenu={e => handleContextMenu(e, c)}
                   />
@@ -235,7 +230,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 
             {lanPeers.filter(p => !contacts.find(c => c.public_key === p.public_key)).length > 0 && (
               <>
-                <SectionLabel>📡 РЯДОМ (LAN)</SectionLabel>
+                <SectionLabel>Рядом (LAN)</SectionLabel>
                 {lanPeers
                   .filter(p => !contacts.find(c => c.public_key === p.public_key))
                   .map(p => (
@@ -250,7 +245,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
               !lanPeers.find(l => l.public_key === p.soviet_pk)
             ).length > 0 && (
               <>
-                <SectionLabel>🌐 ИНТЕРНЕТ (P2P)</SectionLabel>
+                <SectionLabel>Интернет (P2P)</SectionLabel>
                 {p2pPeers
                   .filter(p =>
                     p.soviet_pk && !contacts.find(c => c.public_key === p.soviet_pk) &&
@@ -265,41 +260,26 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 
             {contacts.length === 0 && lanPeers.length === 0 && (
               <div style={s.empty}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ marginBottom: 12 }}>
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
                   Нет контактов.<br />Добавьте первого!
                 </div>
               </div>
             )}
-          </div>
+          </>
+        )}
 
-          {/* ── Кнопки ── */}
-          <div style={s.footer}>
-            <button className="btn-primary" style={{ ...s.addBtn, flex: 1 }} onClick={() => onAddContact()}>
-              + Контакт
-            </button>
-            <button className="btn-secondary" style={{ ...s.addBtn, flex: 1 }} onClick={() => onCreateGroup?.()}>
-              👥 Группа
-            </button>
-          </div>
-        </>
-      )}
-
-      {tab === 'channels' && (
-        <>
-          <div style={s.searchWrap}>
-            <input
-              style={s.search}
-              placeholder="🔍  Поиск каналов..."
-              value={channelSearch}
-              onChange={e => setChannelSearch(e.target.value)}
-            />
-          </div>
-          <div style={s.list}>
+        {tab === 'channels' && (
+          <>
             {channels.length === 0 && (
               <div style={s.empty}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>📡</div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ marginBottom: 12 }}>
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.4 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.82a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                </svg>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
                   Нет каналов.<br />Создайте или вступите!
                 </div>
               </div>
@@ -307,69 +287,55 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
             {channels
               .filter(ch => !channelSearch || ch.name.toLowerCase().includes(channelSearch.toLowerCase()))
               .map(ch => (
-              <div key={ch.channel_id}
-                style={{
-                  ...sl.row,
-                  background: activeChannel?.channel_id === ch.channel_id ? 'var(--bg-tertiary)' : 'transparent'
-                }}
-                onClick={() => setActiveChannel(ch)}
-                onContextMenu={(e) => { e.preventDefault(); setChannelCtxMenu({ ch, x: e.clientX, y: e.clientY }) }}
-                onMouseEnter={e => { if (activeChannel?.channel_id !== ch.channel_id) e.currentTarget.style.background = 'var(--bg-hover)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = activeChannel?.channel_id === ch.channel_id ? 'var(--bg-tertiary)' : 'transparent' }}
-              >
-                {ch.picture && ch.picture.startsWith('data:')
-                  ? <img src={ch.picture} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                  : <div style={{ ...sl.avatar, background: 'rgba(128,0,255,0.15)', color: '#9b59b6', fontSize: 15, fontWeight: 700 }}>
-                      {ch.name ? ch.name.charAt(0).toUpperCase() : '📢'}
-                    </div>
-                }
-                <div style={sl.info}>
-                  <div style={sl.nameRow}>
-                    <span style={sl.name}>{ch.name || 'Канал'}</span>
-                  </div>
-                  <div style={sl.sub}>
-                    {ch.about
-                      ? (ch.about.length > 60 ? ch.about.slice(0, 60) + '…' : ch.about)
-                      : (ch.last_message ?? 'Нет сообщений')}
-                  </div>
-                </div>
-                {ch.unread_count > 0 && (
-                  <div style={sl.badge}>{ch.unread_count > 99 ? '99+' : ch.unread_count}</div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div style={s.footer}>
-            <button className="btn-primary" style={s.addBtn} onClick={() => onAddChannel?.()}>
-              + Канал
-            </button>
-          </div>
-        </>
-      )}
+                <ChannelRow
+                  key={ch.channel_id}
+                  ch={ch}
+                  active={activeChannel?.channel_id === ch.channel_id}
+                  onClick={() => setActiveChannel(ch)}
+                  onContextMenu={e => { e.preventDefault(); setChannelCtxMenu({ ch, x: e.clientX, y: e.clientY }) }}
+                />
+              ))}
+          </>
+        )}
+      </div>
 
+      {/* ── Footer ── */}
+      <div style={s.footer}>
+        {tab === 'chats' ? (
+          <>
+            <button className="btn-primary" style={s.footerBtn} onClick={() => onAddContact()}>
+              + Контакт
+            </button>
+            <button className="btn-secondary" style={s.footerBtn} onClick={() => onCreateGroup?.()}>
+              + Группа
+            </button>
+          </>
+        ) : (
+          <button className="btn-primary" style={{ ...s.footerBtn, flex: 1 }} onClick={() => onAddChannel?.()}>
+            + Канал
+          </button>
+        )}
+      </div>
+
+      {/* ── Channel context menu ── */}
       {channelCtxMenu && (
         <div
-          style={{
-            position: 'fixed', zIndex: 9999,
-            left: channelCtxMenu.x, top: channelCtxMenu.y,
-            background: 'var(--bg-primary)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: '4px 0', boxShadow: '0 4px 16px var(--shadow)',
-            minWidth: 160,
-          }}
+          style={s.ctxMenu}
           onClick={e => e.stopPropagation()}
         >
-          <button style={ctxItemStyle} onClick={() => { setActiveChannel(channelCtxMenu.ch); setChannelCtxMenu(null) }}>
-            💬 Открыть
+          <button style={s.ctxItem} onClick={() => { setActiveChannel(channelCtxMenu.ch); setChannelCtxMenu(null) }}>
+            Открыть
           </button>
-          <button style={ctxItemStyle} onClick={async () => {
+          <button style={s.ctxItem} onClick={async () => {
             if (!confirm(`Покинуть «${channelCtxMenu.ch.name}»?`)) return
             await useStore.getState().leaveChannel(channelCtxMenu.ch.channel_id)
             setChannelCtxMenu(null)
-          }}>🚪 Покинуть</button>
+          }}>
+            Покинуть
+          </button>
         </div>
       )}
 
-      {/* ── Контекстное меню ── */}
       {contextMenu && (
         <ContactContextMenu
           contact={contextMenu.contact}
@@ -383,7 +349,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
         />
       )}
 
-      {/* ── Профиль контакта ── */}
       {profileContact && (
         <ContactProfile
           contact={profileContact}
@@ -391,7 +356,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
         />
       )}
 
-      {/* ── Входящий запрос контакта ── */}
       {showRequest && pendingRequest && (
         <IncomingRequestModal
           request={pendingRequest}
@@ -399,7 +363,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
         />
       )}
 
-      {/* ── Поиск пользователей ── */}
       {showUserSearch && (
         <UserSearchModal
           onClose={() => setShowUserSearch(false)}
@@ -411,67 +374,133 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div style={sl.label}>{children}</div>
+  return (
+    <div style={{
+      fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
+      color: 'var(--text-muted)', padding: '10px 16px 4px',
+      textTransform: 'uppercase',
+    }}>
+      {children}
+    </div>
+  )
 }
 
-function ContactRow({ contact, active, unread, displayName, lastMsg, onClick, onContextMenu }: {
+function ContactRow({ contact, active, unread, displayName, lastMsg, lastTime, onClick, onContextMenu }: {
   contact: Contact
   active: boolean
   unread: number
   displayName: string
   lastMsg: string | null
+  lastTime: number | null
   onClick: () => void
   onContextMenu: (e: React.MouseEvent) => void
 }) {
+  const initials = displayName.charAt(0).toUpperCase()
+  const avatarColor = stringToColor(contact.public_key)
+
   return (
     <div
-      style={{ ...sl.row, background: active ? 'var(--bg-tertiary)' : 'transparent' }}
+      style={{
+        ...row.wrap,
+        background: active ? 'var(--row-active-bg)' : 'transparent',
+      }}
       onClick={onClick}
       onContextMenu={onContextMenu}
       onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = active ? 'var(--bg-tertiary)' : 'transparent' }}
+      onMouseLeave={e => { e.currentTarget.style.background = active ? 'var(--row-active-bg)' : 'transparent' }}
     >
-      <div style={sl.avatar}>
-        <span style={{ fontSize: 16 }}>{displayName.charAt(0).toUpperCase()}</span>
-        <span className={`status-dot ${contact.status}`} style={sl.statusDot} />
+      <div style={{ ...row.avatar, background: avatarColor }}>
+        {initials}
+        <span className={`status-dot ${contact.status}`} style={row.statusDot} />
       </div>
-      <div style={sl.info}>
-        <div style={sl.nameRow}>
-          <span style={sl.name}>
+      <div style={row.info}>
+        <div style={row.top}>
+          <span style={row.name} className="truncate">
             {displayName}
-            {contact.verified && <span style={sl.verified} title="Верифицирован">✓</span>}
+            {contact.verified && (
+              <svg style={{ marginLeft: 3, color: 'var(--accent)', flexShrink: 0 }} width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+              </svg>
+            )}
           </span>
-          {contact.last_seen && contact.status === 'offline' && (
-            <span style={sl.time}>{formatLastSeen(contact.last_seen)}</span>
+          {lastTime && (
+            <span style={row.time}>{formatTime(lastTime)}</span>
           )}
         </div>
-        {lastMsg ? (
-          <div style={sl.sub}>{truncate(lastMsg, 36)}</div>
-        ) : contact.status_text ? (
-          <div style={sl.sub}>{contact.status_text}</div>
-        ) : null}
+        <div style={row.bottom}>
+          <span style={row.sub} className="truncate">
+            {lastMsg ?? contact.status_text ?? ''}
+          </span>
+          {unread > 0 && (
+            <span className="unread-badge">{unread > 99 ? '99+' : unread}</span>
+          )}
+        </div>
       </div>
-      {unread > 0 && (
-        <div style={sl.badge}>{unread > 99 ? '99+' : unread}</div>
-      )}
+    </div>
+  )
+}
+
+function ChannelRow({ ch, active, onClick, onContextMenu }: {
+  ch: NostrChannel
+  active: boolean
+  onClick: () => void
+  onContextMenu: (e: React.MouseEvent) => void
+}) {
+  const initials = ch.name ? ch.name.charAt(0).toUpperCase() : '#'
+  return (
+    <div
+      style={{
+        ...row.wrap,
+        background: active ? 'var(--row-active-bg)' : 'transparent',
+      }}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = active ? 'var(--row-active-bg)' : 'transparent' }}
+    >
+      {ch.picture && ch.picture.startsWith('data:')
+        ? <img src={ch.picture} style={{ ...row.avatar, objectFit: 'cover' } as React.CSSProperties} />
+        : <div style={{ ...row.avatar, background: '#7B68EE', color: '#fff', fontSize: 16, fontWeight: 700 }}>
+            {initials}
+          </div>
+      }
+      <div style={row.info}>
+        <div style={row.top}>
+          <span style={row.name} className="truncate">{ch.name || 'Канал'}</span>
+        </div>
+        <div style={row.bottom}>
+          <span style={row.sub} className="truncate">
+            {ch.about
+              ? (ch.about.length > 55 ? ch.about.slice(0, 55) + '…' : ch.about)
+              : (ch.last_message ?? 'Нет сообщений')}
+          </span>
+          {ch.unread_count > 0 && (
+            <span className="unread-badge">{ch.unread_count > 99 ? '99+' : ch.unread_count}</span>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
 function LanPeerRow({ peer, onAdd }: { peer: any; onAdd: () => void }) {
   return (
-    <div style={sl.row}>
-      <div style={{ ...sl.avatar, background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
-        <span style={{ fontSize: 16 }}>?</span>
-        <span className="status-dot online" style={sl.statusDot} />
+    <div style={row.wrap}>
+      <div style={{ ...row.avatar, background: 'var(--bg-tertiary)', color: 'var(--text-muted)', fontSize: 16 }}>
+        ?
+        <span className="status-dot online" style={row.statusDot} />
       </div>
-      <div style={sl.info}>
-        <div style={sl.name}>{peer.nickname}</div>
-        <div style={sl.sub}>{peer.addr}</div>
+      <div style={row.info}>
+        <div style={row.top}>
+          <span style={row.name} className="truncate">{peer.nickname}</span>
+        </div>
+        <div style={row.bottom}>
+          <span style={row.sub} className="truncate">{peer.addr}</span>
+          <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6 }} onClick={onAdd}>
+            + Добавить
+          </button>
+        </div>
       </div>
-      <button className="btn-secondary" style={{ fontSize: 11, padding: '3px 8px' }} onClick={onAdd}>
-        + Добавить
-      </button>
     </div>
   )
 }
@@ -481,140 +510,196 @@ function P2pPeerRow({ peer, onAdd }: { peer: P2pPeer; onAdd: () => void }) {
     ? peer.soviet_pk.slice(0, 12) + '…'
     : peer.peer_id.slice(0, 12) + '…'
   return (
-    <div style={sl.row}>
-      <div style={{ ...sl.avatar, background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
-        <span style={{ fontSize: 14 }}>🌐</span>
-        <span className="status-dot online" style={sl.statusDot} />
+    <div style={row.wrap}>
+      <div style={{ ...row.avatar, background: 'var(--bg-tertiary)', color: 'var(--text-muted)', fontSize: 14 }}>
+        P2P
+        <span className="status-dot online" style={row.statusDot} />
       </div>
-      <div style={sl.info}>
-        <div style={sl.name}>{shortId}</div>
-        <div style={sl.sub}>{peer.addrs[0] ?? 'P2P'}</div>
+      <div style={row.info}>
+        <div style={row.top}>
+          <span style={row.name} className="truncate">{shortId}</span>
+        </div>
+        <div style={row.bottom}>
+          <span style={row.sub} className="truncate">{peer.addrs[0] ?? 'P2P'}</span>
+          <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6 }} onClick={onAdd}>
+            + Добавить
+          </button>
+        </div>
       </div>
-      <button className="btn-secondary" style={{ fontSize: 11, padding: '3px 8px' }} onClick={onAdd}>
-        + Добавить
-      </button>
     </div>
   )
 }
 
-function truncate(s: string, n: number) {
-  return s.length > n ? s.slice(0, n) + '…' : s
+function formatTime(ts: number): string {
+  const d = new Date(ts * 1000)
+  const now = new Date()
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
+  if (diffDays < 7) {
+    return d.toLocaleDateString('ru', { weekday: 'short' })
+  }
+  return d.toLocaleDateString('ru', { day: 'numeric', month: 'short' })
 }
 
-function formatLastSeen(ts: number): string {
-  const diff = Math.floor(Date.now() / 1000) - ts
-  if (diff < 60) return 'только что'
-  if (diff < 3600) return `${Math.floor(diff / 60)} мин`
-  if (diff < 86400) return `${Math.floor(diff / 3600)} ч`
-  return `${Math.floor(diff / 86400)} д`
+function stringToColor(str: string): string {
+  const palette = [
+    '#FF6B6B', '#FF8E53', '#FFD93D', '#6BCB77',
+    '#2AABEE', '#845EC2', '#FF9671', '#F9F871',
+    '#00C9A7', '#C34B4B', '#4D8B31', '#3D5A80',
+  ]
+  let hash = 0
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash)
+  return palette[Math.abs(hash) % palette.length]
 }
 
-const ctxItemStyle: React.CSSProperties = {
-  display: 'block', width: '100%', textAlign: 'left',
-  padding: '8px 14px', background: 'none', border: 'none',
-  cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)',
-}
-
+/* ── Styles ── */
 const s: Record<string, React.CSSProperties> = {
   root: {
-    width: 230, minWidth: 190, maxWidth: 290,
+    width: 320, minWidth: 260, maxWidth: 360,
     display: 'flex', flexDirection: 'column',
-    background: 'var(--bg-secondary)',
-    borderRight: '1px solid var(--border)',
+    background: 'var(--bg-sidebar)',
+    borderRight: '1px solid var(--divider)',
     height: '100vh', overflow: 'hidden', flexShrink: 0,
   },
   header: {
-    display: 'flex', alignItems: 'center', gap: 8,
-    padding: '10px 10px', borderBottom: '1px solid var(--border)',
-    flexShrink: 0, position: 'relative',
+    display: 'flex', alignItems: 'center', gap: 10,
+    padding: '10px 12px',
+    background: 'var(--header-bg)',
+    borderBottom: '1px solid var(--divider)',
+    flexShrink: 0,
   },
-  avatar: {
-    width: 36, height: 36, borderRadius: '50%',
-    background: 'var(--accent)', display: 'flex',
-    alignItems: 'center', justifyContent: 'center',
-    fontSize: 20, flexShrink: 0,
+  headerAvatar: {
+    width: 40, height: 40, borderRadius: '50%',
+    overflow: 'hidden', flexShrink: 0, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'var(--accent)',
   },
-  headerInfo: { flex: 1, minWidth: 0, position: 'relative' },
+  avatarImg: { width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' },
+  headerInfo: { flex: 1, minWidth: 0 },
   myNick: {
-    fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    fontSize: 15, fontWeight: 700,
+    color: 'var(--header-text)',
+    maxWidth: '100%',
   },
-  myShortId: {
-    fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace',
-    marginTop: 1,
-  },
-  statusBadge: { display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 },
-  statusMenu: {
-    position: 'absolute', top: '100%', left: 0, zIndex: 100,
-    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-    borderRadius: 10, boxShadow: '0 4px 16px var(--shadow)',
-    padding: '4px', minWidth: 130,
-  },
-  statusItem: {
-    display: 'flex', alignItems: 'center', gap: 8,
-    padding: '7px 10px', borderRadius: 7, cursor: 'pointer',
-    fontSize: 13, color: 'var(--text-primary)',
-  },
+  myId: { fontSize: 12, color: 'var(--text-muted)', marginTop: 1 },
+  headerBtn: { width: 34, height: 34 },
   requestBanner: {
     display: 'flex', alignItems: 'center', gap: 8,
-    padding: '7px 10px', flexShrink: 0,
-    background: 'rgba(204,51,51,0.08)',
-    borderBottom: '1px solid var(--border)',
+    padding: '7px 14px', flexShrink: 0,
+    background: 'rgba(42,171,238,0.10)',
+    borderBottom: '1px solid var(--divider)',
     cursor: 'pointer',
   },
-  searchWrap: { padding: '6px 8px 4px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 },
-  search: { flex: 1, minWidth: 0, padding: '5px 10px', fontSize: 13, borderRadius: 8 },
+  requestDot: {
+    width: 8, height: 8, borderRadius: '50%',
+    background: 'var(--accent)', flexShrink: 0,
+  },
+  searchWrap: {
+    padding: '8px 12px 6px',
+    flexShrink: 0,
+    background: 'var(--bg-sidebar)',
+  },
+  searchInner: {
+    display: 'flex', alignItems: 'center',
+    background: 'var(--bg-secondary)',
+    borderRadius: 20,
+    padding: '6px 12px',
+    gap: 8,
+  },
+  searchIcon: { color: 'var(--text-muted)', flexShrink: 0 },
+  search: {
+    flex: 1, background: 'transparent', border: 'none',
+    outline: 'none', fontSize: 14, color: 'var(--text-primary)',
+    padding: 0,
+  },
+  tabs: {
+    display: 'flex',
+    borderBottom: '1px solid var(--divider)',
+    flexShrink: 0,
+  },
+  tabBtn: {
+    flex: 1, background: 'transparent', border: 'none',
+    borderBottom: '2px solid transparent',
+    padding: '8px 0', fontSize: 13, fontWeight: 500,
+    color: 'var(--text-secondary)', cursor: 'pointer',
+    transition: 'color 0.15s, border-color 0.15s',
+    position: 'relative',
+  },
+  tabActive: {
+    color: 'var(--accent)',
+    borderBottomColor: 'var(--accent)',
+  },
   list: { flex: 1, overflowY: 'auto', padding: '4px 0' },
   empty: {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
-    justifyContent: 'center', padding: '40px 16px',
+    justifyContent: 'center', padding: '48px 20px',
   },
-  footer: { padding: '8px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 6 },
-  addBtn: { fontSize: 12, padding: '8px 6px' },
+  footer: {
+    padding: '8px 12px',
+    borderTop: '1px solid var(--divider)',
+    flexShrink: 0,
+    display: 'flex', gap: 8,
+  },
+  footerBtn: { flex: 1, fontSize: 13, padding: '8px 10px' },
+  ctxMenu: {
+    position: 'fixed', zIndex: 9999,
+    background: 'var(--bg-primary)',
+    border: '1px solid var(--border)',
+    borderRadius: 10, padding: '4px 0',
+    boxShadow: '0 4px 20px var(--shadow-md)',
+    minWidth: 160,
+  },
+  ctxItem: {
+    display: 'block', width: '100%', textAlign: 'left',
+    padding: '9px 16px', background: 'none', border: 'none',
+    cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)',
+  },
 }
 
-const sl: Record<string, React.CSSProperties> = {
-  label: {
-    fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-    color: 'var(--text-muted)', padding: '8px 12px 3px',
-    textTransform: 'uppercase',
-  },
-  row: {
-    display: 'flex', alignItems: 'center', gap: 8,
-    padding: '5px 10px', cursor: 'pointer',
-    transition: 'background 0.1s', borderRadius: 6, margin: '1px 4px',
+const row: Record<string, React.CSSProperties> = {
+  wrap: {
+    display: 'flex', alignItems: 'center', gap: 10,
+    padding: '8px 12px', cursor: 'pointer',
+    transition: 'background 0.1s',
   },
   avatar: {
-    width: 34, height: 34, borderRadius: '50%',
+    width: 46, height: 46, borderRadius: '50%',
     background: 'var(--accent)', display: 'flex',
     alignItems: 'center', justifyContent: 'center',
-    color: 'white', fontWeight: 700, fontSize: 14,
+    color: '#fff', fontWeight: 700, fontSize: 18,
     position: 'relative', flexShrink: 0,
+    userSelect: 'none',
   },
   statusDot: {
-    position: 'absolute', bottom: 0, right: 0,
-    width: 10, height: 10, border: '2px solid var(--bg-secondary)', borderRadius: '50%',
+    position: 'absolute', bottom: 1, right: 1,
+    width: 11, height: 11,
+    border: '2px solid var(--bg-sidebar)',
+    borderRadius: '50%',
   },
   info: { flex: 1, minWidth: 0 },
-  nameRow: {
-    display: 'flex', alignItems: 'baseline', gap: 4,
-    justifyContent: 'space-between',
+  top: {
+    display: 'flex', alignItems: 'center',
+    justifyContent: 'space-between', gap: 6,
+    marginBottom: 2,
   },
   name: {
-    fontSize: 13, fontWeight: 500, color: 'var(--text-primary)',
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-    display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0,
+    fontSize: 14, fontWeight: 600,
+    color: 'var(--text-primary)',
+    flex: 1, minWidth: 0,
+    display: 'flex', alignItems: 'center', gap: 2,
   },
-  verified: { color: 'var(--online)', fontSize: 11 },
-  time: { fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 },
-  sub: {
+  time: {
     fontSize: 11, color: 'var(--text-muted)',
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-    marginTop: 1,
+    flexShrink: 0, whiteSpace: 'nowrap',
   },
-  badge: {
-    background: 'var(--accent)', color: 'white',
-    borderRadius: 10, padding: '2px 6px', fontSize: 11, fontWeight: 700,
-    flexShrink: 0,
+  bottom: {
+    display: 'flex', alignItems: 'center',
+    justifyContent: 'space-between', gap: 6,
+  },
+  sub: {
+    fontSize: 13, color: 'var(--text-secondary)',
+    flex: 1, minWidth: 0,
   },
 }
