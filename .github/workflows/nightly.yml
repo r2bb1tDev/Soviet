@@ -68,7 +68,9 @@ jobs:
           workspaces: ./src-tauri -> target
 
       - name: Install frontend dependencies
-        run: npm install
+        run: |
+          npm cache clean --force
+          npm ci
 
       - name: Check versions
         run: |
