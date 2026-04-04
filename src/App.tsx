@@ -1,7 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
-// import { checkUpdate, installUpdate } from '@tauri-apps/api/updater'
 import { useStore } from './store'
 import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
@@ -20,36 +19,34 @@ export default function App() {
   } = useStore()
   const get = useStore.getState
 
-  // const [updateAvailable, setUpdateAvailable] = useState(false)
-  // const [updateInfo, setUpdateInfo] = useState<any>(null)
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<any>(null)
 
-  // const checkForUpdates = async () => {
-  //   try {
-  //     const update = await checkUpdate()
-  //     if (update.shouldUpdate) {
-  //       setUpdateInfo(update)
-  //       setUpdateAvailable(true)
-  //     }
-  //   } catch (error) {
-  //     console.error('Update check failed:', error)
-  //   }
-  // }
+  const checkForUpdates = async () => {
+    try {
+      const update = await invoke<any>('plugin:updater|check_update')
+      if (update.shouldUpdate) {
+        setUpdateInfo(update)
+        setUpdateAvailable(true)
+      }
+    } catch (error) {
+      console.error('Update check failed:', error)
+    }
+  }
 
-  // const handleInstallUpdate = async () => {
-  //   if (updateInfo) {
-  //     try {
-  //       await installUpdate()
-  //       // Приложение перезапустится автоматически после установки
-  //     } catch (error) {
-  //       console.error('Update installation failed:', error)
-  //       addToast({ type: 'error', title: 'Ошибка обновления', body: 'Не удалось установить обновление' })
-  //     }
-  //   }
-  // }
+  const handleInstallUpdate = async () => {
+    try {
+      await invoke<any>('plugin:updater|install_update')
+      // Приложение перезапустится автоматически после установки
+    } catch (error) {
+      console.error('Update installation failed:', error)
+      addToast({ type: 'error', title: 'Ошибка обновления', body: 'Не удалось установить обновление' })
+    }
+  }
 
-  // const handleLater = () => {
-  //   setUpdateAvailable(false)
-  // }
+  const handleLater = () => {
+    setUpdateAvailable(false)
+  }
 
   // Тема: сначала ОС, потом перезаписываем сохранённой настройкой
   useEffect(() => {
@@ -80,17 +77,17 @@ export default function App() {
   useEffect(() => { loadIdentity() }, [])
 
   // Проверка обновлений при старте и каждые 2 минуты
-  // useEffect(() => {
-  //   checkForUpdates() // Проверяем сразу при старте
+  useEffect(() => {
+    checkForUpdates() // Проверяем сразу при старте
 
-  //   const interval = setInterval(() => {
-  //     if (!updateAvailable) { // Проверяем только если уведомление скрыто
-  //       checkForUpdates()
-  //     }
-  //   }, 2 * 60 * 1000) // 2 минуты
+    const interval = setInterval(() => {
+      if (!updateAvailable) { // Проверяем только если уведомление скрыто
+        checkForUpdates()
+      }
+    }, 2 * 60 * 1000) // 2 минуты
 
-  //   return () => clearInterval(interval)
-  // }, [updateAvailable])
+    return () => clearInterval(interval)
+  }, [updateAvailable])
 
   // Загружаем данные при открытии главного окна
   useEffect(() => {
@@ -303,7 +300,7 @@ export default function App() {
       {page === 'settings'   && <Settings />}
       {page === 'main'       && <Main />}
 
-      {/* {updateAvailable && updateInfo && (
+      {updateAvailable && updateInfo && (
         <div style={{
           position: 'fixed',
           top: 0,
@@ -357,7 +354,7 @@ export default function App() {
             </div>
           </div>
         </div>
-      )} */}
+      )}
 
       <ToastContainer />
     </>

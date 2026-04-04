@@ -16,6 +16,7 @@ tauri-build = { version = "2.0", features = [] }
 tauri = { version = "2.1", features = ["tray-icon", "image-ico", "image-png"] }
 tauri-plugin-notification = "2.0"
 tauri-plugin-shell = "2.0"
+tauri-plugin-updater = "2.0"
 tauri-plugin-process = "2"
 
 # Сериализация

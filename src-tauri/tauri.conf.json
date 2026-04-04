@@ -46,6 +46,14 @@
   "plugins": {
     "shell": {
       "open": true
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://releases.example.com/{{ target }}/{{ version }}/update.json"
+      ],
+      "dialog": true,
+      "pubkey": ""
     }
   }
 }
