@@ -46,6 +46,13 @@
   "plugins": {
     "shell": {
       "open": true
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/r2bb1tDev/Soviet/releases/latest/download/latest.json"
+      ],
+      "dialog": true,
+      "pubkey": "RWRdBwDABn4XVuuOE0/KXvnQZ67lO0KZajP9tI+Ly2nLQQ7pCLvnin+P"
     }
   }
 }
