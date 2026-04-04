@@ -17,7 +17,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const {
     identity, contacts, chats, lanPeers, p2pPeers, activeChat,
     setActiveChat, sidebarSearch, setSidebarSearch,
-    myStatus, setMyStatus, setPage, loadContacts, loadChats,
+    setPage, loadContacts, loadChats,
     contactRequests, loadContactRequests, myAvatar,
     channels, activeChannel, setActiveChannel, loadChannels,
   } = useStore()
@@ -25,7 +25,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const [tab, setTab] = useState<'chats' | 'channels'>('chats')
   const [channelSearch, setChannelSearch] = useState('')
   const [customId, setCustomId] = useState('')
-  const [showStatusMenu, setShowStatusMenu] = useState(false)
   const [contextMenu, setContextMenu] = useState<{
     contact: Contact; x: number; y: number
   } | null>(null)
@@ -39,7 +38,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     invoke<any>('get_settings').then(s => { if (s.custom_id) setCustomId(s.custom_id) }).catch(() => {})
   }, [])
   useEffect(() => {
-    const close = () => { setChannelCtxMenu(null); setShowStatusMenu(false) }
+    const close = () => { setChannelCtxMenu(null) }
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
@@ -102,13 +101,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     loadContacts()
     loadChats()
   }
-
-  const statuses = [
-    { key: 'online',  label: 'Онлайн' },
-    { key: 'away',    label: 'Отошёл' },
-    { key: 'busy',    label: 'Занят' },
-    { key: 'offline', label: 'Невидимка' },
-  ]
 
   const totalChannelUnread = channels.reduce((n, c) => n + c.unread_count, 0)
 
