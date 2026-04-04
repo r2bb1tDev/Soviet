@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
+import { checkUpdate, installUpdate } from '@tauri-apps/plugin-updater'
 import { useStore } from './store'
 import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
@@ -18,6 +19,37 @@ export default function App() {
     applyChannelEdit, applyChannelDelete, applyChannelReaction,
   } = useStore()
   const get = useStore.getState
+
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<any>(null)
+
+  const checkForUpdates = async () => {
+    try {
+      const update = await checkUpdate()
+      if (update.shouldUpdate) {
+        setUpdateInfo(update)
+        setUpdateAvailable(true)
+      }
+    } catch (error) {
+      console.error('Update check failed:', error)
+    }
+  }
+
+  const handleInstallUpdate = async () => {
+    if (updateInfo) {
+      try {
+        await installUpdate()
+        // Приложение перезапустится автоматически после установки
+      } catch (error) {
+        console.error('Update installation failed:', error)
+        addToast('Ошибка обновления', 'error')
+      }
+    }
+  }
+
+  const handleLater = () => {
+    setUpdateAvailable(false)
+  }
 
   // Тема: сначала ОС, потом перезаписываем сохранённой настройкой
   useEffect(() => {
@@ -46,6 +78,19 @@ export default function App() {
 
   // Загружаем идентичность при старте
   useEffect(() => { loadIdentity() }, [])
+
+  // Проверка обновлений при старте и каждые 2 минуты
+  useEffect(() => {
+    checkForUpdates() // Проверяем сразу при старте
+
+    const interval = setInterval(() => {
+      if (!updateAvailable) { // Проверяем только если уведомление скрыто
+        checkForUpdates()
+      }
+    }, 2 * 60 * 1000) // 2 минуты
+
+    return () => clearInterval(interval)
+  }, [updateAvailable])
 
   // Загружаем данные при открытии главного окна
   useEffect(() => {
@@ -257,6 +302,63 @@ export default function App() {
       {page === 'onboarding' && <Onboarding />}
       {page === 'settings'   && <Settings />}
       {page === 'main'       && <Main />}
+
+      {updateAvailable && updateInfo && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-color)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '8px',
+            padding: '20px',
+            maxWidth: '400px',
+            textAlign: 'center'
+          }}>
+            <h3>Доступно обновление</h3>
+            <p>Версия {updateInfo.manifest?.version}</p>
+            <p>{updateInfo.manifest?.body || 'Новая версия приложения доступна для установки.'}</p>
+            <div style={{ marginTop: '20px', display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button
+                onClick={handleLater}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'var(--button-bg)',
+                  color: 'var(--button-text)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Позже
+              </button>
+              <button
+                onClick={handleInstallUpdate}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'var(--accent-color)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Установить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ToastContainer />
     </>
   )
