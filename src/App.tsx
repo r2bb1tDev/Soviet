@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
-import { checkUpdate } from '@tauri-apps/plugin-updater'
+// import { checkUpdate } from '@tauri-apps/plugin-updater'
 import { useStore } from './store'
 import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
@@ -25,11 +25,11 @@ export default function App() {
 
   const checkForUpdates = async () => {
     try {
-      const update = await checkUpdate()
-      if (update.shouldUpdate) {
-        setUpdateInfo(update)
-        setUpdateAvailable(true)
-      }
+      // const update = await checkUpdate()
+      // if (update.shouldUpdate) {
+      //   setUpdateInfo(update)
+      //   setUpdateAvailable(true)
+      // }
     } catch (error) {
       console.error('Update check failed:', error)
     }
@@ -38,7 +38,7 @@ export default function App() {
   const handleInstallUpdate = async () => {
     if (updateInfo) {
       try {
-        await updateInfo.install()
+        // await updateInfo.install()
         // Приложение перезапустится автоматически после установки
       } catch (error) {
         console.error('Update installation failed:', error)
