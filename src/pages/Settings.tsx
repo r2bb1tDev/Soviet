@@ -15,6 +15,12 @@ export default function Settings() {
   const [customId, setCustomId] = useState('')
   const [customIdError, setCustomIdError] = useState('')
   const [privKey, setPrivKey] = useState('')
+  const [autoResponse, setAutoResponse] = useState('')
+  const [historyEnabled, setHistoryEnabled] = useState(true)
+  const [allowList, setAllowList] = useState('')
+  const [denyList, setDenyList] = useState('')
+  const [invisibleList, setInvisibleList] = useState('')
+  const [ignoreList, setIgnoreList] = useState('')
   const [saved, setSaved] = useState(false)
   const [copiedPub, setCopiedPub] = useState(false)
   const [copiedPriv, setCopiedPriv] = useState(false)
@@ -31,6 +37,12 @@ export default function Settings() {
       setTheme(s.theme)
       if (s.avatar_data) setAvatarPreview(s.avatar_data)
       if (s.custom_id) setCustomId(s.custom_id)
+      setAutoResponse(s.auto_response ?? '')
+      setHistoryEnabled(s.history_enabled !== false)
+      setAllowList(s.allow_list ?? '')
+      setDenyList(s.deny_list ?? '')
+      setInvisibleList(s.invisible_list ?? '')
+      setIgnoreList(s.ignore_list ?? '')
     })
     invoke<string>('export_keys').then(k => setPrivKey(k)).catch(() => {})
     invoke<any[]>('get_p2p_peers').then(peers => {
@@ -88,6 +100,12 @@ export default function Settings() {
           theme,
           avatar_data: avatarPreview ?? '',
           custom_id: customId,
+          auto_response: autoResponse,
+          history_enabled: historyEnabled,
+          allow_list: allowList,
+          deny_list: denyList,
+          invisible_list: invisibleList,
+          ignore_list: ignoreList,
         }
       })
       setMyAvatar(avatarPreview)
@@ -157,13 +175,19 @@ export default function Settings() {
 
           <Label>Статус</Label>
           <div style={s.statusRow}>
-            {(['online','away','busy','offline'] as const).map(st => (
+            {(['online','away','na','dnd','invisible'] as const).map(st => (
               <button key={st}
                 className={myStatus === st ? 'btn-primary' : 'btn-secondary'}
                 style={s.statusBtn}
                 onClick={() => setMyStatus(st)}>
                 <span className={`status-dot ${st}`} style={{marginRight:6}}/>
-                {{ online:'Онлайн', away:'Отошёл', busy:'Занят', offline:'Невидимка' }[st]}
+                {{
+                  online: 'Online',
+                  away: 'Away',
+                  na: 'N/A',
+                  dnd: 'Do Not Disturb',
+                  invisible: 'Invisible',
+                }[st]}
               </button>
             ))}
           </div>
@@ -252,6 +276,30 @@ export default function Settings() {
             ))}
           </div>
           <Toggle label="Звуки уведомлений" value={notifySounds} onChange={setNotifySounds} />
+        </Section>
+
+        {/* Messaging */}
+        <Section title="Messaging">
+          <Toggle label="История сообщений" value={historyEnabled} onChange={setHistoryEnabled} />
+          <Label style={{ marginTop: 10 }}>Автоответчик</Label>
+          <textarea
+            style={{ ...s.input, height: 70, resize: 'none' }}
+            placeholder="Текст автоответа (если вы Away / DND)"
+            value={autoResponse}
+            onChange={e => setAutoResponse(e.target.value)}
+          />
+        </Section>
+
+        {/* Privacy */}
+        <Section title="Privacy">
+          <Label>Allow list (по одному ключу на строку)</Label>
+          <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={allowList} onChange={e => setAllowList(e.target.value)} />
+          <Label style={{ marginTop: 10 }}>Deny list</Label>
+          <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={denyList} onChange={e => setDenyList(e.target.value)} />
+          <Label style={{ marginTop: 10 }}>Invisible list</Label>
+          <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={invisibleList} onChange={e => setInvisibleList(e.target.value)} />
+          <Label style={{ marginTop: 10 }}>Ignore list</Label>
+          <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={ignoreList} onChange={e => setIgnoreList(e.target.value)} />
         </Section>
 
         <button className="btn-primary" style={s.saveBtn} onClick={save}>

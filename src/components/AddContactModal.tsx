@@ -69,7 +69,6 @@ export default function AddContactModal({ onClose, prefillPk = '', prefillNick =
 
   const handleAdd = async () => {
     if (!effectivePk) { setError('Вставьте приглашение или публичный ключ'); return }
-    if (!effectiveNick) { setError('Введите никнейм'); return }
     if (effectivePk === identity?.public_key) { setError('Это ваш собственный ключ'); return }
     if (effectivePk.length < 20) { setError('Слишком короткий ключ — скопируйте полный'); return }
 
@@ -124,10 +123,10 @@ export default function AddContactModal({ onClose, prefillPk = '', prefillNick =
               </div>
             )}
 
-            <label style={{ ...s.label, marginTop: 12 }}>Имя для отображения</label>
+            <label style={{ ...s.label, marginTop: 12 }}>Комментарий (необязательно)</label>
             <input
               style={s.input}
-              placeholder="Как назвать этот контакт у тебя"
+              placeholder="Например: откуда вы знакомы"
               value={nick}
               onChange={e => setNick(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleAdd()}

@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { useStore, Message, Contact } from '../store'
+import { useStore, Message, Contact, Chat } from '../store'
 import ContactProfile from './ContactProfile'
+
+// Обёртка для loadMessages через store.getState()
+const storeLoadMessages = async (chatId: number) => {
+  const st = useStore.getState()
+  return st.loadMessages(chatId)
+}
 
 const EMOJI_LIST = [
   '😀','😂','😍','🥺','😎','😢','😡','🤔','👍','👎',
@@ -15,9 +21,11 @@ const QUICK_REACTIONS = ['👍','❤️','😂','😮','😢','🔥']
 export default function ChatWindow() {
   const {
     activeChat, messages, decryptedMessages, identity, reactions,
-    contacts, sendMessage, loadChats, typingUsers, sendTyping,
+    contacts, sendMessage, typingUsers, sendTyping,
     addReaction, removeReaction, editMessage, deleteMessage,
     leaveGroup, deleteGroup, getGroupMembers, deleteChat, setActiveChat,
+    sendGroupMessage,
+    loadMoreMessages,
   } = useStore()
 
   const [text, setText] = useState('')
@@ -33,10 +41,12 @@ export default function ChatWindow() {
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<number | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const textareaRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastEnterRef = useRef<number>(0)
+  // В проекте уже есть события Tauri (`new-message`, `group-message`), поэтому
+  // polling здесь не нужен и добавляет задержки/нагрузку.
 
   const isGroup = activeChat?.chat_type === 'group'
   const [groupMembers, setGroupMembers] = useState<import('../store').GroupMember[]>([])
@@ -68,30 +78,45 @@ export default function ChatWindow() {
     if (!activeChat) return
     if (!confirm('Удалить этот чат?')) return
     try {
-      await deleteChat(activeChat.id)
+      await deleteChat(activeChat.id!)
       setActiveChat(null)
     } catch {}
   }
 
-  const contact = contacts.find(c => c.public_key === activeChat?.peer_key)
+  // Получаем контакт для текущего чата (используем в хедерах и профиле)
+  const contactForChat = activeChat ? contacts.find(c => c.public_key === activeChat.peer_key!) : null
+  
   const groupName = isGroup
     ? (activeChat as any)?.group_name ?? `Группа (${groupMembers.length})`
     : null
+  
+  // Имя для отображения: nickname пользователя (без local_alias)
   const displayName = isGroup
-    ? groupName
-    : (contact?.local_alias ?? contact?.nickname
-        ?? (activeChat?.peer_key ? activeChat.peer_key.slice(0, 12) + '...' : ''))
+    ? groupName!
+    : contactForChat?.nickname
+      ?? (activeChat?.peer_key ? activeChat.peer_key.slice(0, 12) + '...' : '')
 
   const avatarLetter = isGroup
     ? (groupName as string)?.charAt(0).toUpperCase() ?? 'G'
-    : (displayName as string)?.charAt(0).toUpperCase() ?? '?'
+    : displayName.charAt(0).toUpperCase() ?? '?'
 
   const isTyping = activeChat?.peer_key ? (typingUsers[activeChat.peer_key] ?? false) : false
 
+  // Автоскролл при новых сообщениях
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
 
+  const handleLoadMore = async () => {
+    if (!activeChat?.id || messages.length === 0) return
+    const firstTs = messages[0]?.timestamp
+    if (!firstTs) return
+    try { await loadMoreMessages(activeChat.id, firstTs) } catch {}
+  }
+
+  // Очистка состояния при смене чата
   useEffect(() => {
     setText('')
     setSending(false)
@@ -99,6 +124,11 @@ export default function ChatWindow() {
     setEditingId(null)
     setContextMenu(null)
     textareaRef.current?.focus()
+    
+    // Загружаем сообщения нового чата сразу после активации
+    if (activeChat?.id && activeChat.id > 0) {
+      storeLoadMessages(activeChat.id).catch(() => {})
+    }
   }, [activeChat?.id])
 
   useEffect(() => {
@@ -140,7 +170,7 @@ export default function ChatWindow() {
           dataBase64: base64,
         })
         const { activeChat: ac } = useStore.getState()
-        if (ac && ac.id > 0) useStore.getState().loadMessages(ac.id)
+        if (ac && ac.id! > 0) storeLoadMessages(ac.id!)
       } catch {}
     }
     reader.readAsDataURL(file)
@@ -148,21 +178,58 @@ export default function ChatWindow() {
   }
 
   const handleSend = useCallback(async () => {
-    if (!text.trim() || !activeChat?.peer_key || sending) return
+    if (!text.trim() || !activeChat || sending) return
     setSending(true)
+    
+    // Отправляем сигнал "перестал печатать" перед отправкой
     if (activeChat.peer_key) sendTyping(activeChat.peer_key, false)
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+    
     try {
-      await sendMessage(activeChat.peer_key, text.trim())
+      if (activeChat.chat_type === 'group') {
+        if (!activeChat.group_id) return
+        await sendGroupMessage(activeChat.group_id, text.trim())
+      } else {
+        if (!activeChat.peer_key) return
+        await sendMessage(activeChat.peer_key, text.trim())
+      }
+      
+      // После отправки перезагружаем сообщения для синхронизации
+      const chatId = activeChat?.id ?? -1
+      if (chatId > 0) {
+        storeLoadMessages(chatId).catch(() => {})
+      } else {
+        // Используем store.getState() для получения chats после loadChats
+        const st = useStore.getState()
+        try {
+          await new Promise<void>(resolve => {
+            st.loadChats().then(() => {
+              // После загрузки чатов ищем новый чат в store
+              const chats = (st.chats as unknown as Chat[])
+              const newChats: Chat[] = chats.filter(c => c.chat_type === 'direct' && c.peer_key === activeChat?.peer_key)
+              if (newChats.length > 0) {
+                // Обновляем activeChat на новый чат
+                st.setActiveChat(newChats[0])
+                storeLoadMessages(newChats[0].id!).catch(() => {})
+              } else {
+                // Если не нашли в direct, пробуем найти по peer_key в любом типе чата
+                const found = chats.find(c => c.peer_key === activeChat?.peer_key)
+                if (found) st.setActiveChat(found)
+              }
+              resolve()
+            }).catch(() => { resolve() })
+          }).then(() => {}, () => {})
+        } catch {}
+      }
+      
       setText('')
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
-      loadChats()
     } catch {}
     finally {
       setSending(false)
       textareaRef.current?.focus()
     }
-  }, [text, activeChat, sending, sendMessage])
+  }, [text, activeChat, sending, sendMessage, sendGroupMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -198,7 +265,7 @@ export default function ChatWindow() {
 
   const submitEdit = async () => {
     if (!editingId || !activeChat) return
-    try { await editMessage(editingId, activeChat.id, editText) } catch {}
+    try { await editMessage(editingId!, activeChat.id!, editText) } catch {}
     setEditingId(null)
   }
 
@@ -206,7 +273,7 @@ export default function ChatWindow() {
     if (!activeChat) return
     if (!confirm('Удалить это сообщение?')) return
     setContextMenu(null)
-    try { await deleteMessage(msgId, activeChat.id) } catch {}
+    try { await deleteMessage(msgId, activeChat.id!) } catch {}
   }
 
   const handleForward = (text: string) => {
@@ -220,13 +287,14 @@ export default function ChatWindow() {
     const msgReactions = reactions[msgId] ?? []
     const existing = msgReactions.find(r => r.sender_key === myPk && r.emoji === emoji)
     try {
-      if (existing) await removeReaction(msgId, activeChat.id, emoji)
-      else await addReaction(msgId, activeChat.id, emoji)
+      if (existing) await removeReaction(msgId, activeChat.id!, emoji)
+      else await addReaction(msgId, activeChat.id!, emoji)
     } catch {}
     setReactionPickerMsgId(null)
     setContextMenu(null)
   }
 
+  // Группируем сообщения по датам для отображения разделителей
   const grouped = groupByDate(messages)
 
   if (!activeChat) return null
@@ -237,30 +305,32 @@ export default function ChatWindow() {
       <div style={s.header}>
         <div
           style={s.headerAvatar}
-          onClick={() => !isGroup && contact && setShowProfile(true)}
+          onClick={() => !isGroup && contactForChat && setShowProfile(true)}
         >
           {avatarLetter}
-          {!isGroup && contact && (
-            <span className={`status-dot ${contact.status}`} style={s.headerDot} />
+          {!isGroup && contactForChat && (
+            <span className={`status-dot ${contactForChat.status}`} style={s.headerDot} />
           )}
         </div>
 
-        <div style={s.headerInfo}>
-          <div style={s.headerName}>{displayName}</div>
-          <div style={s.headerSub}>
-            {isGroup
-              ? <span>{groupMembers.length} участн.</span>
-              : isTyping
-                ? <span style={{ color: 'var(--online)', fontStyle: 'italic' }}>печатает...</span>
-                : contact
-                  ? statusLabel(contact.status, contact.status_text)
-                  : <span>{activeChat.peer_key?.slice(0, 24)}…</span>
-            }
+          <div style={s.headerInfo}>
+            <div style={s.headerName}>{displayName}</div>
+            <div style={s.headerSub}>
+              {isGroup
+                ? <span>{groupMembers.length} участн.</span>
+                : isTyping
+                  ? <span style={{ color: 'var(--online)', fontStyle: 'italic' }}>печатает...</span>
+                  : contactForChat
+                    ? statusLabel(contactForChat.status, contactForChat.status_text)
+                    : activeChat?.peer_key
+                      ? <span>{activeChat.peer_key.slice(0, 24)}…</span>
+                      : <span>неизвестно</span>
+              }
+            </div>
           </div>
-        </div>
 
         <div style={s.headerActions}>
-          {!isGroup && contact && (
+          {!isGroup && contactForChat && (
             <button className="btn-icon" title="Профиль" onClick={() => setShowProfile(true)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
@@ -300,6 +370,13 @@ export default function ChatWindow() {
 
       {/* ── Message list ── */}
       <div style={s.messages}>
+        {messages.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 10px' }}>
+            <button className="btn-secondary" style={{ fontSize: 12, padding: '6px 10px' }} onClick={handleLoadMore}>
+              Показать историю
+            </button>
+          </div>
+        )}
         {messages.length === 0 && (
           <div style={s.noMessages}>
             <svg width="52" height="52" viewBox="0 0 24 24" fill="none"
@@ -395,7 +472,7 @@ export default function ChatWindow() {
 
         <button className="btn-icon" title="Вставить блок кода" style={{ ...s.composeBtn, fontFamily: 'monospace', fontSize: 13, fontWeight: 700, width: 34, height: 34 }}
           onClick={() => {
-            const ta = textareaRef.current
+            const ta = textareaRef.current as HTMLTextAreaElement | null
             if (!ta) { setText(t => t + '```\n\n```'); return }
             const start = ta.selectionStart, end = ta.selectionEnd
             const sel = text.slice(start, end)
@@ -413,7 +490,7 @@ export default function ChatWindow() {
 
         <div style={s.textareaWrap}>
           <textarea
-            ref={textareaRef}
+            ref={textareaRef as any}
             style={s.textarea}
             placeholder="Сообщение"
             value={text}
@@ -461,15 +538,18 @@ export default function ChatWindow() {
             setContextMenu(null)
           }}>Копировать</button>
           <button style={s.ctxItem} onClick={() => handleForward(contextMenu.text)}>Переслать</button>
-          {contextMenu.isMine && !messages.find(m => m.id === contextMenu.msgId)?.is_deleted && (
+          {/* Кнопки контекстного меню */}
+          {contextMenu.isMine && (
             <>
               <button style={s.ctxItem} onClick={() => startEdit(contextMenu.msgId, contextMenu.text)}>
                 Редактировать
               </button>
-              <button style={{ ...s.ctxItem, color: '#e53e3e' }}
-                onClick={() => handleDelete(contextMenu.msgId)}>
-                Удалить
-              </button>
+              {!messages.find(m => m.id === contextMenu.msgId)?.is_deleted && (
+                <button style={{ ...s.ctxItem, color: '#e53e3e' }}
+                  onClick={() => handleDelete(contextMenu.msgId)}>
+                  Удалить
+                </button>
+              )}
             </>
           )}
         </div>
@@ -488,14 +568,14 @@ export default function ChatWindow() {
         />
       )}
 
-      {showProfile && contact && (
-        <ContactProfile contact={contact} onClose={() => setShowProfile(false)} />
+      {showProfile && contactForChat && (
+        <ContactProfile contact={contactForChat} onClose={() => setShowProfile(false)} />
       )}
     </div>
   )
 }
 
-// ─── renderMessageText ─────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function renderMessageText(text: string): React.ReactNode {
   const nodes: React.ReactNode[] = []

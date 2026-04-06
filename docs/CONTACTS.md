@@ -176,7 +176,7 @@ Format: Soviet | PolarBear | 5KYZdUEo39C1shXXPRJ4FxHPCcMHbhcVVxjBkzmV9Mfx | @pol
 
 - ✓ Оба видят друг друга в списке контактов
 - ✓ Могут отправлять личные сообщения
-- ✓ Видят статус друг друга (online/away/busy/offline)
+- ✓ Видят статус друг друга (online/away/na/dnd/invisible/offline)
 - ✓ Получают read receipts
 
 ---
@@ -192,7 +192,7 @@ CREATE TABLE contacts (
     local_alias TEXT,                   -- Локальный псевдоним (видит только вы)
 
     -- Статус
-    status TEXT DEFAULT 'offline',      -- online | away | busy | invisible | offline
+    status TEXT DEFAULT 'offline',      -- online | away | na | dnd | invisible | offline
     status_text TEXT,                   -- "На работе", "Обеденный перерыв", etc
     last_seen INTEGER,                  -- Unix timestamp последнего визита
 

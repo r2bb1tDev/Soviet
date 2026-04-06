@@ -362,6 +362,8 @@ button:active { opacity: 0.8; }
 .status-dot.online    { background: var(--online); }
 .status-dot.away      { background: var(--away); }
 .status-dot.busy      { background: var(--busy); }
+.status-dot.dnd       { background: var(--busy); }
+.status-dot.na        { background: #9E9E9E; }
 .status-dot.offline   { background: var(--offline); }
 .status-dot.invisible { background: #555; }
 

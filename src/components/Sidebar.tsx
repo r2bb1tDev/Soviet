@@ -6,6 +6,7 @@ import ContactProfile from './ContactProfile'
 import IncomingRequestModal from './IncomingRequestModal'
 import BearLogo from './BearLogo'
 import UserSearchModal from './UserSearchModal'
+import FileTransferWindow from './FileTransferWindow'
 
 interface Props {
   onAddContact: (prefill?: { pk?: string; nick?: string }) => void
@@ -20,6 +21,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     setPage, loadContacts, loadChats,
     contactRequests, loadContactRequests, myAvatar,
     channels, activeChannel, setActiveChannel, loadChannels,
+    myStatus, setMyStatus,
   } = useStore()
 
   const [tab, setTab] = useState<'chats' | 'channels'>('chats')
@@ -32,6 +34,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const [showRequest, setShowRequest] = useState(false)
   const [channelCtxMenu, setChannelCtxMenu] = useState<{ ch: NostrChannel; x: number; y: number } | null>(null)
   const [showUserSearch, setShowUserSearch] = useState(false)
+  const [showTransfers, setShowTransfers] = useState(false)
 
   useEffect(() => { loadChannels() }, [])
   useEffect(() => {
@@ -49,7 +52,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     const q = sidebarSearch.toLowerCase()
     if (!q) return contacts
     return contacts.filter(c =>
-      (c.local_alias ?? c.nickname).toLowerCase().includes(q) ||
+      c.nickname.toLowerCase().includes(q) ||
       c.public_key.toLowerCase().includes(q)
     )
   }, [contacts, sidebarSearch])
@@ -75,7 +78,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     setContextMenu(null)
   }
 
-  const displayName = (c: Contact) => c.local_alias ?? c.nickname
+  const displayName = (c: Contact) => c.nickname
   const unreadFor   = (pk: string) => chatForContact(pk)?.unread_count ?? 0
   const lastMsgFor  = (pk: string) => chatForContact(pk)?.last_message ?? null
   const lastTimeFor = (pk: string) => chatForContact(pk)?.last_message_time ?? null
@@ -118,6 +121,18 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           <div style={s.myNick} className="truncate">{identity?.nickname ?? 'Soviet'}</div>
           {customId && <div style={s.myId}>@{customId}</div>}
         </div>
+        <select
+          value={myStatus}
+          onChange={e => setMyStatus(e.target.value)}
+          title="Статус"
+          style={s.statusSelect}
+        >
+          <option value="online">Online</option>
+          <option value="away">Away</option>
+          <option value="na">N/A</option>
+          <option value="dnd">Do Not Disturb</option>
+          <option value="invisible">Invisible</option>
+        </select>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="btn-icon" title="Поиск" style={s.headerBtn}
             onClick={() => setShowUserSearch(true)}>
@@ -133,6 +148,22 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
             </svg>
           </button>
         </div>
+      </div>
+
+      {/* ── ICQ Toolbar ── */}
+      <div style={s.toolbar}>
+        <button className="btn-secondary" style={s.toolBtn} onClick={() => onAddContact()}>
+          Add User
+        </button>
+        <button className="btn-secondary" style={s.toolBtn} onClick={() => setShowUserSearch(true)}>
+          Find/Search
+        </button>
+        <button className="btn-secondary" style={s.toolBtn} onClick={() => setShowTransfers(true)}>
+          Send File
+        </button>
+        <button className="btn-secondary" style={s.toolBtn} onClick={() => setPage('settings')}>
+          Preferences
+        </button>
       </div>
 
       {/* ── Contact request banner ── */}
@@ -309,6 +340,15 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
         )}
       </div>
 
+      {/* ── Bottom status bar (Connection) ── */}
+      <div style={s.bottomBar}>
+        <span style={s.bottomItem}>LAN: {lanPeers.length > 0 ? 'Online' : '—'}</span>
+        <span style={s.bottomSep}>•</span>
+        <span style={s.bottomItem}>P2P: {p2pPeers.length}</span>
+        <span style={s.bottomSep}>•</span>
+        <span style={s.bottomItem}>Events: {pendingRequest ? '1' : '0'}</span>
+      </div>
+
       {/* ── Channel context menu ── */}
       {channelCtxMenu && (
         <div
@@ -360,6 +400,10 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           onClose={() => setShowUserSearch(false)}
           onAddContact={(prefill) => { setShowUserSearch(false); onAddContact(prefill) }}
         />
+      )}
+
+      {showTransfers && (
+        <FileTransferWindow onClose={() => setShowTransfers(false)} />
       )}
     </div>
   )
@@ -577,6 +621,25 @@ const s: Record<string, React.CSSProperties> = {
   },
   myId: { fontSize: 12, color: 'var(--text-muted)', marginTop: 1 },
   headerBtn: { width: 34, height: 34 },
+  statusSelect: {
+    height: 32,
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
+    fontSize: 12,
+    padding: '0 8px',
+    outline: 'none',
+  },
+  toolbar: {
+    display: 'flex',
+    gap: 8,
+    padding: '8px 12px',
+    borderBottom: '1px solid var(--divider)',
+    background: 'var(--bg-sidebar)',
+    flexShrink: 0,
+  },
+  toolBtn: { flex: 1, fontSize: 12, padding: '7px 8px' },
   requestBanner: {
     display: 'flex', alignItems: 'center', gap: 8,
     padding: '7px 14px', flexShrink: 0,
@@ -635,6 +698,20 @@ const s: Record<string, React.CSSProperties> = {
     display: 'flex', gap: 8,
   },
   footerBtn: { flex: 1, fontSize: 13, padding: '8px 10px' },
+  bottomBar: {
+    padding: '8px 12px',
+    borderTop: '1px solid var(--divider)',
+    background: 'var(--header-bg)',
+    fontSize: 11,
+    color: 'var(--text-muted)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  bottomItem: { whiteSpace: 'nowrap' },
+  bottomSep: { opacity: 0.7 },
   ctxMenu: {
     position: 'fixed', zIndex: 9999,
     background: 'var(--bg-primary)',

@@ -10,7 +10,7 @@ use tauri::{Manager, State, AppHandle, Emitter};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 use serde::{Serialize, Deserialize};
-use storage::{Db, DbContact, DbMessage};
+use storage::{Db, DbContact, DbMessage, OutboxItem};
 use network::{LanNetwork, LanPacket};
 use tokio::sync::mpsc;
 
@@ -313,6 +313,12 @@ fn send_contact_request(
 
     let packet = network::make_contact_request_packet(&my_pk, &my_nick);
 
+    // Сохраняем исходящий запрос локально (ICQ-логика авторизации)
+    {
+        let db = state.db.0.lock().unwrap();
+        storage::save_contact_request(&db, &recipient_pk, "", "outgoing").ok();
+    }
+
     // 1. Try LAN
     let sent = {
         let lan_guard = state.lan.lock().unwrap();
@@ -367,10 +373,11 @@ fn get_chats(state: State<AppState>) -> Result<Vec<storage::DbChat>, String> {
 fn get_messages(
     chat_id: i64,
     limit: i64,
+    before: Option<i64>,
     state: State<AppState>,
 ) -> Result<Vec<DbMessage>, String> {
     let db = state.db.0.lock().unwrap();
-    storage::get_messages(&db, chat_id, limit, None).map_err(|e| e.to_string())
+    storage::get_messages(&db, chat_id, limit, before).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -418,6 +425,14 @@ fn send_message(
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<i64, String> {
+    // Нельзя писать, пока контакт не авторизован (принятие запроса)
+    {
+        let db = state.db.0.lock().unwrap();
+        if !storage::is_contact_accepted(&db, &recipient_pk).unwrap_or(false) {
+            return Err("Контакт не авторизован. Сначала отправьте запрос и дождитесь принятия.".to_string());
+        }
+    }
+
     let kp_guard = state.keypair.lock().unwrap();
     let kp = kp_guard.as_ref().ok_or("No keypair")?;
     let id_guard = state.identity.lock().unwrap();
@@ -437,7 +452,7 @@ fn send_message(
         id: 0,
         chat_id,
         sender_key: ident.public_key.clone(),
-        content: content_json,
+        content: content_json.clone(),
         content_type: "text".to_string(),
         timestamp: now,
         status: "sent".to_string(),
@@ -450,6 +465,8 @@ fn send_message(
     let preview = format!("Вы: {}", &text[..text.len().min(80)]);
     let msg_id = storage::save_message_with_preview(&db, &msg, &preview)
         .map_err(|e| e.to_string())?;
+    // Always queue for offline delivery (ICQ offline messages). If it goes out immediately, worker will mark sent.
+    storage::enqueue_outbox(&db, "direct", &recipient_pk, msg_id, &content_json, "text").ok();
     drop(db);
 
     // 1. Пробуем LAN (локальная сеть)
@@ -539,6 +556,13 @@ pub struct Settings {
     pub theme: String,
     pub avatar_data: String,
     pub custom_id: String,
+    // Messaging / Privacy (ICQ-style preferences) — stored as plain strings in settings table
+    pub auto_response: String,
+    pub history_enabled: bool,
+    pub allow_list: String,
+    pub deny_list: String,
+    pub invisible_list: String,
+    pub ignore_list: String,
 }
 
 #[tauri::command]
@@ -555,6 +579,12 @@ fn get_settings(state: State<AppState>) -> Result<Settings, String> {
         theme: if get("theme").is_empty() { "system".to_string() } else { get("theme") },
         avatar_data: get("avatar_data"),
         custom_id: get("custom_id"),
+        auto_response: get("auto_response"),
+        history_enabled: get("history_enabled") != "false",
+        allow_list: get("allow_list"),
+        deny_list: get("deny_list"),
+        invisible_list: get("invisible_list"),
+        ignore_list: get("ignore_list"),
     })
 }
 
@@ -571,6 +601,12 @@ fn save_settings(settings: Settings, state: State<AppState>) -> Result<(), Strin
         storage::set_setting(&db, "avatar_data", &settings.avatar_data).ok();
     }
     storage::set_setting(&db, "custom_id", &settings.custom_id).ok();
+    storage::set_setting(&db, "auto_response", &settings.auto_response).ok();
+    storage::set_setting(&db, "history_enabled", if settings.history_enabled { "true" } else { "false" }).ok();
+    storage::set_setting(&db, "allow_list", &settings.allow_list).ok();
+    storage::set_setting(&db, "deny_list", &settings.deny_list).ok();
+    storage::set_setting(&db, "invisible_list", &settings.invisible_list).ok();
+    storage::set_setting(&db, "ignore_list", &settings.ignore_list).ok();
     Ok(())
 }
 
@@ -579,6 +615,22 @@ fn set_status(status: String, text: String, state: State<AppState>) -> Result<()
     let db = state.db.0.lock().unwrap();
     storage::set_setting(&db, "status", &status).ok();
     storage::set_setting(&db, "status_text", &text).ok();
+    Ok(())
+}
+
+// ─── Commands — Outbox (offline queue UI) ─────────────────────────────────────
+
+#[tauri::command]
+fn get_outbox(status: String, limit: i64, state: State<AppState>) -> Result<Vec<storage::OutboxItem>, String> {
+    let db = state.db.0.lock().unwrap();
+    storage::get_outbox(&db, &status, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn cancel_outbox(msg_id: i64, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::drop_outbox_for_msg(&db, msg_id).map_err(|e| e.to_string())?;
+    storage::set_message_status(&db, msg_id, "failed").ok();
     Ok(())
 }
 
@@ -914,6 +966,139 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
     }
 }
 
+// ─── Outbox retry worker ──────────────────────────────────────────────────────
+
+fn outbox_backoff_seconds(attempts: i64) -> i64 {
+    // 2s, 5s, 15s, 45s, 2m, 5m, 10m (cap)
+    match attempts {
+        0 => 2,
+        1 => 5,
+        2 => 15,
+        3 => 45,
+        4 => 120,
+        5 => 300,
+        _ => 600,
+    }
+}
+
+fn try_send_outbox_item(_app: &AppHandle, state: &tauri::State<AppState>, item: &OutboxItem) -> Result<bool, String> {
+    // Returns Ok(true) if delivery was attempted/sent, Ok(false) if not possible yet.
+    let id_guard = state.identity.lock().unwrap();
+    let ident = id_guard.as_ref().ok_or("No identity")?;
+    let my_pk = ident.public_key.clone();
+    drop(id_guard);
+
+    match item.kind.as_str() {
+        "direct" | "file" => {
+            let recipient_pk = item.target.clone();
+            let encrypted_json = item.payload.clone();
+
+            // 1) LAN
+            let sent = {
+                let lan_guard = state.lan.lock().unwrap();
+                if let Some(lan) = lan_guard.as_ref() {
+                    if lan.is_peer_online(&recipient_pk) {
+                        if let Ok(enc) = serde_json::from_str::<crypto::EncryptedMessage>(&encrypted_json) {
+                            let packet = network::make_message_packet(&my_pk, &enc);
+                            lan.send_to_peer(&recipient_pk, &packet).is_ok()
+                        } else { false }
+                    } else { false }
+                } else { false }
+            };
+
+            // 2) P2P
+            let sent = if !sent {
+                let p2p_guard = state.p2p.lock().unwrap();
+                if let Some(p2p) = p2p_guard.as_ref() {
+                    if let Some(peer_id) = p2p.is_peer_online(&recipient_pk) {
+                        if let Ok(enc) = serde_json::from_str::<crypto::EncryptedMessage>(&encrypted_json) {
+                            let packet = network::make_message_packet(&my_pk, &enc);
+                            let data = serde_json::to_vec(&packet).unwrap_or_default();
+                            p2p.cmd_tx.try_send(p2p::P2pCmd::SendMessage { peer_id, data }).is_ok()
+                        } else { false }
+                    } else { false }
+                } else { false }
+            } else { true };
+
+            // 3) Nostr DM fallback
+            if !sent {
+                let nostr_guard = state.nostr.lock().unwrap();
+                if let Some(n) = nostr_guard.as_ref() {
+                    n.cmd_tx.try_send(nostr::NostrCmd::SendDm {
+                        recipient_soviet_pk: recipient_pk,
+                        encrypted_json,
+                    }).map_err(|e| e.to_string())?;
+                    return Ok(true);
+                }
+                return Ok(false);
+            }
+            Ok(true)
+        }
+        "group" => {
+            // For MVP: only retry group delivery via LAN (online members).
+            let group_id = item.target.clone();
+            let enc_json = item.payload.clone(); // already an encrypted JSON string per recipient in send_group_message path
+
+            let db = state.db.0.lock().unwrap();
+            let members = storage::get_group_members(&db, &group_id).map_err(|e| e.to_string())?;
+            drop(db);
+
+            let lan_guard = state.lan.lock().unwrap();
+            if let Some(lan) = lan_guard.as_ref() {
+                let kp_guard = state.keypair.lock().unwrap();
+                let kp = kp_guard.as_ref().ok_or("No keypair")?;
+                let mut any = false;
+                for m in &members {
+                    if m.public_key == my_pk { continue; }
+                    if !lan.is_peer_online(&m.public_key) { continue; }
+                    // payload here is plaintext; re-encrypt per member
+                    if let Ok(enc) = crypto::encrypt_message(kp, &m.public_key, enc_json.as_bytes()) {
+                        let per = serde_json::to_string(&enc).unwrap_or_default();
+                        let packet = network::make_group_message_packet(&my_pk, &group_id, &per);
+                        if lan.send_to_peer(&m.public_key, &packet).is_ok() { any = true; }
+                    }
+                }
+                return Ok(any);
+            }
+            Ok(false)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn start_outbox_worker(app: AppHandle) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let state: tauri::State<AppState> = app.state();
+            let db = state.db.0.lock().unwrap();
+            let due = storage::get_due_outbox(&db, 25).unwrap_or_default();
+            drop(db);
+            if due.is_empty() { continue; }
+
+            for item in due {
+                let ok = match try_send_outbox_item(&app, &state, &item) {
+                    Ok(sent) => sent,
+                    Err(_) => false,
+                };
+                let db = state.db.0.lock().unwrap();
+                if ok {
+                    storage::mark_outbox_sent(&db, item.id).ok();
+                    // Best-effort: update message status to "sent" (still may not be delivered yet)
+                    storage::set_message_status(&db, item.msg_id, "sent").ok();
+                    drop(db);
+                    app.emit("outbox-updated", serde_json::json!({ "msg_id": item.msg_id, "status": "sent" })).ok();
+                } else {
+                    let next_attempts = item.attempts + 1;
+                    let backoff = outbox_backoff_seconds(item.attempts);
+                    let next_retry = chrono::Utc::now().timestamp() + backoff;
+                    storage::mark_outbox_attempt(&db, item.id, next_attempts, next_retry, Some("offline")).ok();
+                }
+            }
+        }
+    });
+}
+
 // ─── Commands — File Transfer ────────────────────────────────────────────────
 
 #[tauri::command]
@@ -925,6 +1110,13 @@ fn send_file(
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<i64, String> {
+    {
+        let db = state.db.0.lock().unwrap();
+        if !storage::is_contact_accepted(&db, &recipient_pk).unwrap_or(false) {
+            return Err("Контакт не авторизован. Сначала отправьте запрос и дождитесь принятия.".to_string());
+        }
+    }
+
     let kp_guard = state.keypair.lock().unwrap();
     let kp = kp_guard.as_ref().ok_or("No keypair")?;
     let id_guard = state.identity.lock().unwrap();
@@ -962,6 +1154,7 @@ fn send_file(
     };
     let msg_id = storage::save_message_with_preview(&db, &msg, &preview)
         .map_err(|e| e.to_string())?;
+    storage::enqueue_outbox(&db, "file", &recipient_pk, msg_id, &msg.content, content_type).ok();
     drop(db);
 
     // Отправляем по LAN
@@ -1062,7 +1255,9 @@ fn send_group_message(
         edited_at: None,
         is_deleted: false,
     };
-    storage::save_message_with_preview(&db, &msg, &preview).map_err(|e| e.to_string())?;
+    let msg_id = storage::save_message_with_preview(&db, &msg, &preview).map_err(|e| e.to_string())?;
+    // Queue plaintext for later per-member encryption/retry (MVP: LAN only)
+    storage::enqueue_outbox(&db, "group", &group_id, msg_id, &text, "text").ok();
     drop(db);
 
     // Шлём каждому участнику зашифрованно
@@ -1721,6 +1916,9 @@ pub fn run() {
             // 8. Системный трей
             setup_tray(app)?;
 
+            // 8b. Offline outbox retry worker (ICQ offline messages)
+            start_outbox_worker(app.handle().clone());
+
             // 9. Показываем окно + перехватываем крестик (скрывать в трей вместо закрытия)
             if let Some(window) = app.get_webview_window("main") {
                 window.show().ok();
@@ -1763,6 +1961,8 @@ pub fn run() {
             get_settings,
             save_settings,
             set_status,
+            get_outbox,
+            cancel_outbox,
             send_file,
             create_group,
             get_group_members,
@@ -1846,9 +2046,17 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
             eval_in_window(app, "window.__trayStatus && window.__trayStatus('busy')");
             app.emit("tray-status-change", "busy").ok();
         }
+        "status_na" => {
+            eval_in_window(app, "window.__trayStatus && window.__trayStatus('na')");
+            app.emit("tray-status-change", "na").ok();
+        }
+        "status_dnd" => {
+            eval_in_window(app, "window.__trayStatus && window.__trayStatus('dnd')");
+            app.emit("tray-status-change", "dnd").ok();
+        }
         "status_invis" => {
-            eval_in_window(app, "window.__trayStatus && window.__trayStatus('offline')");
-            app.emit("tray-status-change", "offline").ok();
+            eval_in_window(app, "window.__trayStatus && window.__trayStatus('invisible')");
+            app.emit("tray-status-change", "invisible").ok();
         }
         _ => {}
     }
@@ -1857,10 +2065,11 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let open_item     = MenuItemBuilder::with_id("open",         "Открыть Soviet").build(app)?;
     let sep           = PredefinedMenuItem::separator(app)?;
-    let status_online = MenuItemBuilder::with_id("status_online","🟢 Онлайн").build(app)?;
-    let status_away   = MenuItemBuilder::with_id("status_away",  "🟡 Отошёл").build(app)?;
-    let status_busy   = MenuItemBuilder::with_id("status_busy",  "🔴 Занят").build(app)?;
-    let status_invis  = MenuItemBuilder::with_id("status_invis", "⚫ Невидимка").build(app)?;
+    let status_online = MenuItemBuilder::with_id("status_online","🟢 Online").build(app)?;
+    let status_away   = MenuItemBuilder::with_id("status_away",  "🟡 Away").build(app)?;
+    let status_na     = MenuItemBuilder::with_id("status_na",    "🟣 N/A").build(app)?;
+    let status_dnd    = MenuItemBuilder::with_id("status_dnd",   "🔴 Do Not Disturb").build(app)?;
+    let status_invis  = MenuItemBuilder::with_id("status_invis", "⚫ Invisible").build(app)?;
     let sep2          = PredefinedMenuItem::separator(app)?;
     let settings_item = MenuItemBuilder::with_id("settings",     "⚙ Настройки").build(app)?;
     let sep3          = PredefinedMenuItem::separator(app)?;
@@ -1871,7 +2080,8 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .item(&sep)
         .item(&status_online)
         .item(&status_away)
-        .item(&status_busy)
+        .item(&status_na)
+        .item(&status_dnd)
         .item(&status_invis)
         .item(&sep2)
         .item(&settings_item)

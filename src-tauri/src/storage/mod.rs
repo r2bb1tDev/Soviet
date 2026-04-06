@@ -65,6 +65,24 @@ pub struct ContactRequest {
     pub created_at: i64,
 }
 
+// ─── Outbox (offline queue) ───────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OutboxItem {
+    pub id: i64,
+    pub kind: String,            // "direct" | "group" | "file"
+    pub target: String,          // recipient_pk or group_id
+    pub msg_id: i64,             // messages.id (local)
+    pub payload: String,         // encrypted_json or group_message_json
+    pub content_type: String,    // "text" | "file" | "image"
+    pub status: String,          // "queued" | "sent" | "failed"
+    pub attempts: i64,
+    pub next_retry_at: i64,
+    pub last_error: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 pub fn open(path: &str) -> anyhow::Result<Connection> {
     let conn = Connection::open(path)?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
@@ -125,6 +143,24 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
             status       TEXT    DEFAULT 'sent',
             reply_to     INTEGER REFERENCES messages(id)
         );
+
+        CREATE TABLE IF NOT EXISTS outbox (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind          TEXT    NOT NULL,        -- direct | group | file
+            target        TEXT    NOT NULL,        -- recipient_pk or group_id
+            msg_id        INTEGER NOT NULL,        -- FK to messages.id (logical link)
+            payload       TEXT    NOT NULL,        -- encrypted JSON or group payload
+            content_type  TEXT    NOT NULL DEFAULT 'text',
+            status        TEXT    NOT NULL DEFAULT 'queued',
+            attempts      INTEGER NOT NULL DEFAULT 0,
+            next_retry_at INTEGER NOT NULL,
+            last_error    TEXT,
+            created_at    INTEGER NOT NULL,
+            updated_at    INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_outbox_status_retry ON outbox(status, next_retry_at);
+        CREATE INDEX IF NOT EXISTS idx_outbox_msg_id ON outbox(msg_id);
 
         CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, timestamp);
         CREATE INDEX IF NOT EXISTS idx_contacts_pk ON contacts(public_key);
@@ -196,6 +232,109 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
     // Add new columns to nostr_messages (silently ignored if already present)
     let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN edited_at INTEGER", []);
     let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN is_deleted INTEGER DEFAULT 0", []);
+    Ok(())
+}
+
+pub fn enqueue_outbox(
+    conn: &Connection,
+    kind: &str,
+    target: &str,
+    msg_id: i64,
+    payload: &str,
+    content_type: &str,
+) -> anyhow::Result<i64> {
+    let now = chrono::Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO outbox(kind,target,msg_id,payload,content_type,status,attempts,next_retry_at,created_at,updated_at)
+         VALUES(?1,?2,?3,?4,?5,'queued',0,?6,?6,?6)",
+        params![kind, target, msg_id, payload, content_type, now],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn get_due_outbox(conn: &Connection, limit: i64) -> anyhow::Result<Vec<OutboxItem>> {
+    let now = chrono::Utc::now().timestamp();
+    let mut stmt = conn.prepare(
+        "SELECT id,kind,target,msg_id,payload,content_type,status,attempts,next_retry_at,last_error,created_at,updated_at
+         FROM outbox
+         WHERE status='queued' AND next_retry_at<=?1
+         ORDER BY next_retry_at ASC
+         LIMIT ?2"
+    )?;
+    let rows = stmt.query_map(params![now, limit], |r| {
+        Ok(OutboxItem {
+            id: r.get(0)?,
+            kind: r.get(1)?,
+            target: r.get(2)?,
+            msg_id: r.get(3)?,
+            payload: r.get(4)?,
+            content_type: r.get(5)?,
+            status: r.get(6)?,
+            attempts: r.get(7)?,
+            next_retry_at: r.get(8)?,
+            last_error: r.get(9)?,
+            created_at: r.get(10)?,
+            updated_at: r.get(11)?,
+        })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+pub fn get_outbox(conn: &Connection, status: &str, limit: i64) -> anyhow::Result<Vec<OutboxItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id,kind,target,msg_id,payload,content_type,status,attempts,next_retry_at,last_error,created_at,updated_at
+         FROM outbox
+         WHERE status=?1
+         ORDER BY updated_at DESC
+         LIMIT ?2"
+    )?;
+    let rows = stmt.query_map(params![status, limit], |r| {
+        Ok(OutboxItem {
+            id: r.get(0)?,
+            kind: r.get(1)?,
+            target: r.get(2)?,
+            msg_id: r.get(3)?,
+            payload: r.get(4)?,
+            content_type: r.get(5)?,
+            status: r.get(6)?,
+            attempts: r.get(7)?,
+            next_retry_at: r.get(8)?,
+            last_error: r.get(9)?,
+            created_at: r.get(10)?,
+            updated_at: r.get(11)?,
+        })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+pub fn mark_outbox_attempt(
+    conn: &Connection,
+    outbox_id: i64,
+    attempts: i64,
+    next_retry_at: i64,
+    last_error: Option<&str>,
+) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().timestamp();
+    conn.execute(
+        "UPDATE outbox
+         SET attempts=?1, next_retry_at=?2, last_error=?3, updated_at=?4
+         WHERE id=?5",
+        params![attempts, next_retry_at, last_error, now, outbox_id],
+    )?;
+    Ok(())
+}
+
+pub fn mark_outbox_sent(conn: &Connection, outbox_id: i64) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().timestamp();
+    conn.execute(
+        "UPDATE outbox SET status='sent', updated_at=?1 WHERE id=?2",
+        params![now, outbox_id],
+    )?;
+    Ok(())
+}
+
+pub fn drop_outbox_for_msg(conn: &Connection, msg_id: i64) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM outbox WHERE msg_id=?1", params![msg_id])?;
     Ok(())
 }
 
@@ -291,6 +430,16 @@ pub fn update_contact_fields(
 pub fn delete_contact(conn: &Connection, pk: &str) -> anyhow::Result<()> {
     conn.execute("DELETE FROM contacts WHERE public_key=?1", params![pk])?;
     Ok(())
+}
+
+pub fn is_contact_accepted(conn: &Connection, pk: &str) -> anyhow::Result<bool> {
+    // Контакт считается авторизованным, если он есть в contacts и не заблокирован.
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM contacts WHERE public_key=?1 AND COALESCE(is_blocked,0)=0",
+        params![pk],
+        |r| r.get(0),
+    )?;
+    Ok(count > 0)
 }
 
 // ─── Contact Requests ─────────────────────────────────────────────────────────
@@ -623,6 +772,14 @@ pub fn mark_sent_messages_read(conn: &Connection, peer_pk: &str) -> anyhow::Resu
     conn.execute(
         "UPDATE messages SET status='read' WHERE chat_id=?1 AND status IN ('sent','delivered')",
         params![chat_id],
+    )?;
+    Ok(())
+}
+
+pub fn set_message_status(conn: &Connection, msg_id: i64, status: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE messages SET status=?1 WHERE id=?2",
+        params![status, msg_id],
     )?;
     Ok(())
 }

@@ -524,8 +524,7 @@ impl TrayManager {
    2. Получатель в P2P DHT?  → libp2p RequestResponse
    3. Иначе                  → Nostr Kind 4444 DM relay (fallback)
                 ↓
-5. Сохраняет в БД с status='sent'
-   Отправляет React: { message_id, status: 'sent' }
+5. Сохраняет в БД и ставит в локальную очередь (outbox) для офлайн‑доставки\n+   Статус: queued/sent → delivered/read (по receipts)\n+   Отправляет React: { message_id, status: 'sent' }
                 ↓
 6. React обновляет UI (пузырь сообщения появляется)
 ```

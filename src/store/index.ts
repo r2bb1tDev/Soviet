@@ -15,7 +15,7 @@ export interface Contact {
   public_key: string
   nickname: string
   local_alias: string | null
-  status: 'online' | 'away' | 'busy' | 'offline'
+  status: 'online' | 'away' | 'na' | 'dnd' | 'invisible' | 'offline'
   status_text: string | null
   last_seen: number | null
   notes: string | null
@@ -186,6 +186,7 @@ interface AppStore {
   loadChats: () => Promise<void>
   setActiveChat: (chat: Chat | null) => void
   loadMessages: (chatId: number) => Promise<void>
+  loadMoreMessages: (chatId: number, beforeTs: number) => Promise<void>
   sendMessage: (recipientPk: string, text: string) => Promise<void>
   decryptMessage: (msg: Message) => Promise<string>
   addReaction: (msgId: number, chatId: number, emoji: string) => Promise<void>
@@ -314,9 +315,10 @@ export const useStore = create<AppStore>((set, get) => ({
       })
     } catch { /* P2P may not be ready yet */ }
   },
-  addContact: async (pk, nick) => {
-    await invoke('add_contact', { publicKey: pk, nickname: nick })
-    get().loadContacts()
+  addContact: async (pk, _nick) => {
+    // ICQ-логика: сначала отправляем запрос, контакт появится после принятия
+    await invoke('send_contact_request', { recipientPk: pk })
+    get().loadContactRequests()
   },
   deleteContact: async (pk) => {
     await invoke('delete_contact', { publicKey: pk })
@@ -353,23 +355,21 @@ export const useStore = create<AppStore>((set, get) => ({
     const messages = await invoke<Message[]>('get_messages', { chatId, limit: 50 })
     set({ messages })
     await invoke('mark_read', { chatId })
-    // Расшифровываем
-    const decryptedMessages: Record<number, string> = {}
-    for (const msg of messages) {
-      if (msg.is_deleted) {
-        decryptedMessages[msg.id] = '[Сообщение удалено]'
-      } else if (msg.content_type === 'system' || msg.edited_at !== null) {
-        decryptedMessages[msg.id] = msg.content  // plaintext
-      } else {
-        try {
-          const text = await invoke<string>('decrypt_message_text', { encryptedJson: msg.content })
-          decryptedMessages[msg.id] = text
-        } catch {
-          decryptedMessages[msg.id] = '[зашифрованное сообщение]'
-        }
+    // Расшифровываем (параллельно, чтобы не было задержек)
+    const decryptedPairs = await Promise.all(messages.map(async (msg) => {
+      if (msg.is_deleted) return [msg.id, '[Сообщение удалено]'] as const
+      if (msg.content_type === 'system') return [msg.id, msg.content] as const
+      try {
+        const text = await invoke<string>('decrypt_message_text', { encryptedJson: msg.content })
+        return [msg.id, text] as const
+      } catch {
+        // Если вдруг в БД уже plaintext — показываем его, иначе понятную заглушку
+        const maybePlain = (msg.content ?? '').trim()
+        const looksLikeEncryptedJson = maybePlain.startsWith('{') && maybePlain.includes('"ciphertext"')
+        return [msg.id, looksLikeEncryptedJson ? '[не удалось расшифровать]' : maybePlain] as const
       }
-    }
-    set({ decryptedMessages })
+    }))
+    set({ decryptedMessages: Object.fromEntries(decryptedPairs) })
     // Load reactions
     try {
       const rxList = await invoke<Reaction[]>('get_reactions', { chatId })
@@ -381,6 +381,30 @@ export const useStore = create<AppStore>((set, get) => ({
       set({ reactions })
     } catch { /* ignore */ }
     get().loadChats()
+  },
+  loadMoreMessages: async (chatId, beforeTs) => {
+    const more = await invoke<Message[]>('get_messages', { chatId, limit: 50, before: beforeTs })
+    if (!more || more.length === 0) return
+    set(s => {
+      const existingIds = new Set(s.messages.map(m => m.id))
+      const merged = [...more.filter(m => !existingIds.has(m.id)), ...s.messages]
+      return { messages: merged }
+    })
+    // Расшифровываем только добавленные
+    const st = get()
+    const decryptedPairs = await Promise.all(more.map(async (msg) => {
+      if (msg.is_deleted) return [msg.id, '[Сообщение удалено]'] as const
+      if (msg.content_type === 'system') return [msg.id, msg.content] as const
+      try {
+        const text = await invoke<string>('decrypt_message_text', { encryptedJson: msg.content })
+        return [msg.id, text] as const
+      } catch {
+        const maybePlain = (msg.content ?? '').trim()
+        const looksLikeEncryptedJson = maybePlain.startsWith('{') && maybePlain.includes('"ciphertext"')
+        return [msg.id, looksLikeEncryptedJson ? '[не удалось расшифровать]' : maybePlain] as const
+      }
+    }))
+    set({ decryptedMessages: { ...st.decryptedMessages, ...Object.fromEntries(decryptedPairs) } })
   },
   sendMessage: async (recipientPk, text) => {
     await invoke('send_message', { recipientPk, text })

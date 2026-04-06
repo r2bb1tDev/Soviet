@@ -100,7 +100,14 @@ function MemberRow({ contact, selected, onToggle }: {
         <div style={mr.name}>{name}</div>
         <div style={mr.sub}>
           <span className={`status-dot ${contact.status}`} style={{ marginRight: 4 }} />
-          {{ online: 'Онлайн', away: 'Отошёл', busy: 'Занят', offline: 'Не в сети' }[contact.status]}
+          {{
+            online: 'Online',
+            away: 'Away',
+            na: 'N/A',
+            dnd: 'Do Not Disturb',
+            invisible: 'Invisible',
+            offline: 'Offline',
+          }[contact.status]}
         </div>
       </div>
       <div style={{ ...mr.check, background: selected ? 'var(--accent)' : 'transparent',
