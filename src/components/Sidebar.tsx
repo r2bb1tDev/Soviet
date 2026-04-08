@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { useStore, Contact, NostrChannel, P2pPeer } from '../store'
+import { useStore, Contact, NostrChannel, P2pPeer, SearchResult } from '../store'
 import ContactContextMenu from './ContactContextMenu'
 import ContactProfile from './ContactProfile'
 import IncomingRequestModal from './IncomingRequestModal'
@@ -22,6 +22,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     contactRequests, loadContactRequests, myAvatar,
     channels, activeChannel, setActiveChannel, loadChannels,
     myStatus, setMyStatus,
+    searchResults, searchMessages, clearSearch,
   } = useStore()
 
   const [tab, setTab] = useState<'chats' | 'channels'>('chats')
@@ -40,6 +41,15 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   useEffect(() => {
     invoke<any>('get_settings').then(s => { if (s.custom_id) setCustomId(s.custom_id) }).catch(() => {})
   }, [])
+
+  // Поиск по истории сообщений с дебаунсом 300 мс
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    if (sidebarSearch.trim().length < 2) { clearSearch(); return }
+    searchTimer.current = setTimeout(() => searchMessages(sidebarSearch.trim()), 300)
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
+  }, [sidebarSearch])
   useEffect(() => {
     const close = () => { setChannelCtxMenu(null) }
     window.addEventListener('click', close)
@@ -278,6 +288,37 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
                     <P2pPeerRow key={p.peer_id} peer={p}
                       onAdd={() => p.soviet_pk && onAddContact({ pk: p.soviet_pk, nick: p.soviet_pk.slice(0, 8) })} />
                   ))}
+              </>
+            )}
+
+            {/* ── Результаты поиска по истории сообщений ── */}
+            {sidebarSearch.trim().length >= 2 && (
+              <>
+                <SectionLabel>
+                  {searchResults.length > 0
+                    ? `Сообщения (${searchResults.length})`
+                    : 'Сообщения'}
+                </SectionLabel>
+                {searchResults.length === 0 && (
+                  <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
+                    Ничего не найдено
+                  </div>
+                )}
+                {searchResults.map(r => (
+                  <MsgSearchRow
+                    key={r.msg_id}
+                    result={r}
+                    contacts={contacts}
+                    chats={chats}
+                    myPk={identity?.public_key ?? ''}
+                    onClick={() => {
+                      const chat = chats.find(c => c.id === r.chat_id)
+                      if (chat) setActiveChat(chat)
+                      clearSearch()
+                      setSidebarSearch('')
+                    }}
+                  />
+                ))}
               </>
             )}
 
@@ -560,6 +601,48 @@ function P2pPeerRow({ peer, onAdd }: { peer: P2pPeer; onAdd: () => void }) {
           <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6 }} onClick={onAdd}>
             + Добавить
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MsgSearchRow({
+  result, contacts, chats, myPk, onClick,
+}: {
+  result: SearchResult
+  contacts: Contact[]
+  chats: any[]
+  myPk: string
+  onClick: () => void
+}) {
+  // Определяем имя чата
+  let chatName = 'Чат'
+  if (result.chat_type === 'direct' && result.peer_key) {
+    const c = contacts.find(c => c.public_key === result.peer_key)
+    chatName = c?.local_alias || c?.nickname || result.peer_key.slice(0, 10) + '…'
+  } else if (result.chat_type === 'group' && result.group_id) {
+    const ch = chats.find(c => c.group_id === result.group_id)
+    chatName = ch?.group_id?.slice(0, 12) + '…' || 'Группа'
+  }
+  const isMe = result.sender_key === myPk
+  const preview = result.content_type === 'file' ? '📎 ' + result.plaintext : result.plaintext
+  const ts = formatTime(result.timestamp)
+
+  return (
+    <div style={{ ...row.wrap, cursor: 'pointer' }} onClick={onClick}>
+      <div style={{ ...row.avatar, fontSize: 14, background: 'var(--bg-tertiary)', color: 'var(--accent)' }}>
+        🔍
+      </div>
+      <div style={row.info}>
+        <div style={row.top}>
+          <span style={row.name} className="truncate">{chatName}</span>
+          <span style={row.time}>{ts}</span>
+        </div>
+        <div style={row.bottom}>
+          <span style={{ ...row.sub, fontStyle: 'italic' }} className="truncate">
+            {isMe ? 'Вы: ' : ''}{preview.slice(0, 60)}{preview.length > 60 ? '…' : ''}
+          </span>
         </div>
       </div>
     </div>

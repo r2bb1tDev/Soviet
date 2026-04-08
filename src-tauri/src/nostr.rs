@@ -602,7 +602,7 @@ async fn on_relay_msg(
                     edited_at:    None,
                     is_deleted:   false,
                 };
-                if let Ok(msg_id) = crate::storage::save_message_with_preview(&conn, &msg, &preview_short) {
+                if let Ok(msg_id) = crate::storage::save_message_with_preview(&conn, &msg, &preview_short, &preview_short) {
                     crate::storage::increment_unread(&conn, chat_id).ok();
                     drop(conn);
 

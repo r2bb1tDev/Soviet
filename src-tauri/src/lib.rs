@@ -463,7 +463,7 @@ fn send_message(
 
     // Сохраняем с текстовым превью для сайдбара (мы знаем plaintext)
     let preview = format!("Вы: {}", &text[..text.len().min(80)]);
-    let msg_id = storage::save_message_with_preview(&db, &msg, &preview)
+    let msg_id = storage::save_message_with_preview(&db, &msg, &preview, &text)
         .map_err(|e| e.to_string())?;
     // Always queue for offline delivery (ICQ offline messages). If it goes out immediately, worker will mark sent.
     storage::enqueue_outbox(&db, "direct", &recipient_pk, msg_id, &content_json, "text").ok();
@@ -678,7 +678,7 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
         is_deleted: false,
                     };
 
-                    if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview) {
+                    if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview, &preview) {
                         storage::increment_unread(&db, chat_id).ok();
                         drop(db);
 
@@ -840,7 +840,7 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
         edited_at: None,
         is_deleted: false,
                     };
-                    if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview) {
+                    if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview, &plain) {
                         storage::increment_unread(&db, chat_id).ok();
                         drop(db);
                         app.emit("group-message", serde_json::json!({
@@ -1152,7 +1152,7 @@ fn send_file(
         edited_at: None,
         is_deleted: false,
     };
-    let msg_id = storage::save_message_with_preview(&db, &msg, &preview)
+    let msg_id = storage::save_message_with_preview(&db, &msg, &preview, &file_name)
         .map_err(|e| e.to_string())?;
     storage::enqueue_outbox(&db, "file", &recipient_pk, msg_id, &msg.content, content_type).ok();
     drop(db);
@@ -1255,7 +1255,7 @@ fn send_group_message(
         edited_at: None,
         is_deleted: false,
     };
-    let msg_id = storage::save_message_with_preview(&db, &msg, &preview).map_err(|e| e.to_string())?;
+    let msg_id = storage::save_message_with_preview(&db, &msg, &preview, &text).map_err(|e| e.to_string())?;
     // Queue plaintext for later per-member encryption/retry (MVP: LAN only)
     storage::enqueue_outbox(&db, "group", &group_id, msg_id, &text, "text").ok();
     drop(db);
@@ -1783,6 +1783,20 @@ async fn nostr_send_comment(
 }
 
 #[tauri::command]
+fn search_messages(
+    query: String,
+    limit: Option<i64>,
+    state: State<AppState>,
+) -> Result<Vec<storage::SearchResult>, String> {
+    if query.trim().len() < 2 {
+        return Ok(vec![]);
+    }
+    let db = state.db.0.lock().unwrap();
+    storage::search_messages(&db, &query, limit.unwrap_or(60))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_p2p_peers(state: State<AppState>) -> Vec<p2p::P2pPeer> {
     let p2p_guard = state.p2p.lock().unwrap();
     match p2p_guard.as_ref() {
@@ -1993,6 +2007,7 @@ pub fn run() {
             nostr_get_channel_reactions,
             nostr_send_comment,
             get_p2p_peers,
+            search_messages,
             sign_out,
         ])
         .run(tauri::generate_context!())
