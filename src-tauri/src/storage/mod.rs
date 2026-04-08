@@ -229,6 +229,11 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
     // Add new columns to existing messages table (silently ignored if already present)
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN edited_at INTEGER", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN plaintext TEXT", []);
+    // FTS index for plaintext search
+    let _ = conn.execute_batch("
+        CREATE INDEX IF NOT EXISTS idx_messages_plaintext ON messages(plaintext);
+    ");
     // Add new columns to nostr_messages (silently ignored if already present)
     let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN edited_at INTEGER", []);
     let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN is_deleted INTEGER DEFAULT 0", []);
@@ -555,14 +560,22 @@ pub fn message_exists_by_ts(conn: &Connection, chat_id: i64, ts: i64, sender_key
     Ok(count > 0)
 }
 
-/// Сохранить сообщение с явным текстовым превью для сайдбара
-pub fn save_message_with_preview(conn: &Connection, msg: &DbMessage, preview: &str) -> anyhow::Result<i64> {
+/// Сохранить сообщение с явным текстовым превью для сайдбара и plaintext для поиска.
+/// `preview` — отображается в сайдбаре (может быть «Вы: текст»).
+/// `plaintext` — чистый текст без префикса, сохраняется для поиска.
+pub fn save_message_with_preview(
+    conn: &Connection,
+    msg: &DbMessage,
+    preview: &str,
+    plaintext: &str,
+) -> anyhow::Result<i64> {
     conn.execute(
-        "INSERT INTO messages(chat_id,sender_key,content,content_type,timestamp,status,reply_to)
-         VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        "INSERT INTO messages(chat_id,sender_key,content,content_type,timestamp,status,reply_to,plaintext)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
         params![
             msg.chat_id, msg.sender_key, msg.content,
-            msg.content_type, msg.timestamp, msg.status, msg.reply_to
+            msg.content_type, msg.timestamp, msg.status, msg.reply_to,
+            plaintext
         ],
     )?;
     let id = conn.last_insert_rowid();
@@ -571,6 +584,50 @@ pub fn save_message_with_preview(conn: &Connection, msg: &DbMessage, preview: &s
         params![preview, msg.timestamp, msg.chat_id],
     )?;
     Ok(id)
+}
+
+// ─── Поиск сообщений ──────────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SearchResult {
+    pub msg_id:       i64,
+    pub chat_id:      i64,
+    pub sender_key:   String,
+    pub plaintext:    String,
+    pub timestamp:    i64,
+    pub content_type: String,
+    pub chat_type:    String,
+    pub peer_key:     Option<String>,
+    pub group_id:     Option<String>,
+}
+
+pub fn search_messages(conn: &Connection, query: &str, limit: i64) -> anyhow::Result<Vec<SearchResult>> {
+    let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+    let mut stmt = conn.prepare(
+        "SELECT m.id, m.chat_id, m.sender_key, m.plaintext, m.timestamp, m.content_type,
+                c.chat_type, c.peer_key, c.group_id
+         FROM messages m
+         JOIN chats c ON c.id = m.chat_id
+         WHERE m.plaintext LIKE ?1 ESCAPE '\\'
+           AND COALESCE(m.is_deleted, 0) = 0
+           AND m.plaintext IS NOT NULL
+         ORDER BY m.timestamp DESC
+         LIMIT ?2"
+    )?;
+    let rows = stmt.query_map(params![pattern, limit], |r| {
+        Ok(SearchResult {
+            msg_id:       r.get(0)?,
+            chat_id:      r.get(1)?,
+            sender_key:   r.get(2)?,
+            plaintext:    r.get(3)?,
+            timestamp:    r.get(4)?,
+            content_type: r.get(5)?,
+            chat_type:    r.get(6)?,
+            peer_key:     r.get(7)?,
+            group_id:     r.get(8)?,
+        })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
 pub fn get_messages(conn: &Connection, chat_id: i64, limit: i64, before: Option<i64>) -> anyhow::Result<Vec<DbMessage>> {

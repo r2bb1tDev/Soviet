@@ -154,6 +154,18 @@ export function buildChannelContent(text: string, media?: ChannelMedia | null): 
   return JSON.stringify({ v: 1, text, media })
 }
 
+export interface SearchResult {
+  msg_id: number
+  chat_id: number
+  sender_key: string
+  plaintext: string
+  timestamp: number
+  content_type: string
+  chat_type: string
+  peer_key: string | null
+  group_id: string | null
+}
+
 let toastIdCounter = 1
 
 interface AppStore {
@@ -259,6 +271,12 @@ interface AppStore {
   updateChannelMeta: (channelId: string, name: string, about: string, picture: string) => Promise<void>
   deleteChannel: (channelId: string) => Promise<void>
   getSubscriberCount: (channelId: string) => Promise<number>
+
+  // Message search
+  searchResults: SearchResult[]
+  searchQuery: string
+  searchMessages: (query: string) => Promise<void>
+  clearSearch: () => void
 }
 
 export const useStore = create<AppStore>((set, get) => ({
@@ -723,4 +741,17 @@ export const useStore = create<AppStore>((set, get) => ({
       )
     }))
   },
+
+  // ── Поиск сообщений ───────────────────────────────────────────────────────
+  searchResults: [],
+  searchQuery: '',
+  searchMessages: async (query) => {
+    set({ searchQuery: query })
+    if (query.trim().length < 2) { set({ searchResults: [] }); return }
+    try {
+      const results = await invoke<SearchResult[]>('search_messages', { query })
+      set({ searchResults: results })
+    } catch { set({ searchResults: [] }) }
+  },
+  clearSearch: () => set({ searchResults: [], searchQuery: '' }),
 }))
