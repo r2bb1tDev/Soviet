@@ -71,7 +71,7 @@
 
 Вместо этого:
 
-1. **Напишите на email:** security@[to-be-configured]
+1. **Напишите на email:** r2bb1t.dev@gmail.com
    - (Заполняется при публикации проекта)
 
 2. **Укажите в письме:**
@@ -252,10 +252,10 @@ base64 = "0.21"                 # Base64 encoding
 
 ## Контакт и дополнительная информация
 
-- **GitHub:** https://github.com/YOUR_USERNAME/Soviet
-- **Issues (не для уязвимостей!):** https://github.com/YOUR_USERNAME/Soviet/issues
-- **Discussions:** https://github.com/YOUR_USERNAME/Soviet/discussions
-- **Security Email:** security@[to-be-configured]
+- **GitHub:** https://github.com/r2bb1tDev/Soviet
+- **Issues (не для уязвимостей!):** https://github.com/r2bb1tDev/Soviet/issues
+- **Discussions:** https://github.com/r2bb1tDev/Soviet/discussions
+- **Security Email:** r2bb1t.dev@gmail.com
 
 ---
 
