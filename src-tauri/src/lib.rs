@@ -2085,11 +2085,11 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let open_item     = MenuItemBuilder::with_id("open",         "Открыть Soviet").build(app)?;
     let sep           = PredefinedMenuItem::separator(app)?;
-    let status_online = MenuItemBuilder::with_id("status_online","🟢 Online").build(app)?;
-    let status_away   = MenuItemBuilder::with_id("status_away",  "🟡 Away").build(app)?;
-    let status_na     = MenuItemBuilder::with_id("status_na",    "🟣 N/A").build(app)?;
-    let status_dnd    = MenuItemBuilder::with_id("status_dnd",   "🔴 Do Not Disturb").build(app)?;
-    let status_invis  = MenuItemBuilder::with_id("status_invis", "⚫ Invisible").build(app)?;
+    let status_online = MenuItemBuilder::with_id("status_online","🟢 В сети").build(app)?;
+    let status_away   = MenuItemBuilder::with_id("status_away",  "🟡 Отошёл").build(app)?;
+    let status_na     = MenuItemBuilder::with_id("status_na",    "🟣 Недоступен").build(app)?;
+    let status_dnd    = MenuItemBuilder::with_id("status_dnd",   "🔴 Не беспокоить").build(app)?;
+    let status_invis  = MenuItemBuilder::with_id("status_invis", "⚫ Невидимка").build(app)?;
     let sep2          = PredefinedMenuItem::separator(app)?;
     let settings_item = MenuItemBuilder::with_id("settings",     "⚙ Настройки").build(app)?;
     let sep3          = PredefinedMenuItem::separator(app)?;

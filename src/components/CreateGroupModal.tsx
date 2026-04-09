@@ -101,12 +101,12 @@ function MemberRow({ contact, selected, onToggle }: {
         <div style={mr.sub}>
           <span className={`status-dot ${contact.status}`} style={{ marginRight: 4 }} />
           {{
-            online: 'Online',
-            away: 'Away',
-            na: 'N/A',
-            dnd: 'Do Not Disturb',
-            invisible: 'Invisible',
-            offline: 'Offline',
+            online: 'В сети',
+            away: 'Отошёл',
+            na: 'Недоступен',
+            dnd: 'Не беспокоить',
+            invisible: 'Невидимка',
+            offline: 'Не в сети',
           }[contact.status]}
         </div>
       </div>

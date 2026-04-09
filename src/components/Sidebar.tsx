@@ -173,22 +173,15 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           <option value="invisible">Невидимка</option>
         </select>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {/* Кнопка добавить контакт */}
+          {/* + Добавить в друзья */}
           <button className="btn-icon" title="Добавить контакт" style={s.headerBtn}
             onClick={() => onAddContact()}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-              <circle cx="8.5" cy="7" r="4"/>
-              <line x1="20" y1="8" x2="20" y2="14"/>
-              <line x1="23" y1="11" x2="17" y2="11"/>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
           </button>
-          <button className="btn-icon" title="Передача файлов" style={s.headerBtn}
-            onClick={() => setShowTransfers(true)}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-            </svg>
-          </button>
+          {/* Настройки */}
           <button className="btn-icon" title="Настройки" style={s.headerBtn}
             onClick={() => setPage('settings')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -210,7 +203,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
         </div>
       )}
 
-      {/* ── Search bar ── */}
+      {/* ── Search bar + File transfer ── */}
       <div style={s.searchWrap}>
         <div style={s.searchInner}>
           <svg style={s.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -222,13 +215,23 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
             value={tab === 'chats' ? sidebarSearch : channelSearch}
             onChange={e => tab === 'chats' ? setSidebarSearch(e.target.value) : setChannelSearch(e.target.value)}
           />
+          <button
+            className="btn-icon"
+            title="Передача файлов"
+            style={{ width: 24, height: 24, padding: 0, flexShrink: 0, color: 'var(--text-muted)' }}
+            onClick={() => setShowTransfers(true)}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
         </div>
       </div>
 
       {/* ── Tabs ── */}
       <div style={s.tabs}>
         <button style={{ ...s.tabBtn, ...(tab === 'chats' ? s.tabActive : {}) }}
-          onClick={() => setTab('chats')}>
+          onClick={() => { setTab('chats'); setActiveChannel(null) }}>
           Чаты
         </button>
         <button style={{ ...s.tabBtn, ...(tab === 'channels' ? s.tabActive : {}), position: 'relative' }}
@@ -442,11 +445,11 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 
       {/* ── Bottom status bar (Connection) ── */}
       <div style={s.bottomBar}>
-        <span style={s.bottomItem}>LAN: {lanPeers.length > 0 ? 'Online' : '—'}</span>
+        <span style={s.bottomItem}>LAN: {lanPeers.length > 0 ? 'В сети' : '—'}</span>
         <span style={s.bottomSep}>•</span>
         <span style={s.bottomItem}>P2P: {p2pPeers.length}</span>
         <span style={s.bottomSep}>•</span>
-        <span style={s.bottomItem}>Events: {pendingRequest ? '1' : '0'}</span>
+        <span style={s.bottomItem}>Запросы: {pendingRequest ? '1' : '0'}</span>
       </div>
 
       {/* ── Channel context menu ── */}
