@@ -146,7 +146,7 @@ export default function App() {
       const { chat_id, sender_pk, sender_name, preview } = e.payload
       // Сначала перезагружаем чаты чтобы создался chat с реальным id
       await loadChats()
-      const { activeChat, setActiveChat, chats } = useStore.getState()
+      const { activeChat, setActiveChat } = useStore.getState()
       const isActive =
         activeChat?.id === chat_id ||
         activeChat?.peer_key === sender_pk ||
