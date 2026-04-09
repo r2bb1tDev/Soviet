@@ -39,11 +39,16 @@ export default function ChatWindow() {
   } | null>(null)
   const [forwardMsg, setForwardMsg] = useState<{ text: string } | null>(null)
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<number | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [recordingSecs, setRecordingSecs] = useState(0)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // В проекте уже есть события Tauri (`new-message`, `group-message`), поэтому
   // polling здесь не нужен и добавляет задержки/нагрузку.
@@ -175,6 +180,54 @@ export default function ChatWindow() {
     }
     reader.readAsDataURL(file)
     e.target.value = ''
+  }
+
+  const handleMicToggle = async () => {
+    if (recording) {
+      // Остановить запись
+      mediaRecorderRef.current?.stop()
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
+      setRecording(false)
+      setRecordingSecs(0)
+      return
+    }
+    if (!activeChat?.peer_key && !activeChat?.group_id) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg'
+      const mr = new MediaRecorder(stream, { mimeType })
+      audioChunksRef.current = []
+      mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: mimeType })
+        if (blob.size < 100) return
+        const reader = new FileReader()
+        reader.onload = async (ev) => {
+          const dataUrl = ev.target?.result as string
+          const base64 = dataUrl.split(',')[1]
+          const ext = mimeType === 'audio/webm' ? 'webm' : 'ogg'
+          try {
+            await invoke('send_file', {
+              recipientPk: activeChat?.peer_key ?? '',
+              fileName: `voice_${Date.now()}.${ext}`,
+              mimeType,
+              dataBase64: base64,
+            })
+            const { activeChat: ac } = useStore.getState()
+            if (ac && ac.id! > 0) storeLoadMessages(ac.id!)
+          } catch {}
+        }
+        reader.readAsDataURL(blob)
+      }
+      mr.start(200)
+      mediaRecorderRef.current = mr
+      setRecording(true)
+      setRecordingSecs(0)
+      recordingTimerRef.current = setInterval(() => setRecordingSecs(s => s + 1), 1000)
+    } catch {
+      alert('Нет доступа к микрофону')
+    }
   }
 
   const handleSend = useCallback(async () => {
@@ -497,11 +550,37 @@ export default function ChatWindow() {
           />
         </div>
 
+        {/* Кнопка микрофона — голосовые сообщения */}
+        {!text.trim() && !isGroup && activeChat?.peer_key && (
+          <button
+            className="btn-icon"
+            title={recording ? `Остановить (${recordingSecs}с)` : 'Голосовое сообщение'}
+            style={{
+              ...s.composeBtn,
+              color: recording ? 'var(--busy)' : 'var(--text-secondary)',
+              border: recording ? '1px solid var(--busy)' : '1px solid transparent',
+              animation: recording ? 'pulse 1s ease-in-out infinite' : 'none',
+            }}
+            onClick={handleMicToggle}
+          >
+            {recording
+              ? <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--busy)' }}>
+                  ●{String(Math.floor(recordingSecs/60)).padStart(2,'0')}:{String(recordingSecs%60).padStart(2,'0')}
+                </span>
+              : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+            }
+          </button>
+        )}
+
         <button
           style={{
             ...s.sendBtn,
             background: text.trim() ? 'var(--accent)' : 'var(--bg-tertiary)',
-            color: text.trim() ? '#fff' : 'var(--text-muted)',
+            color: text.trim() ? '#000' : 'var(--text-muted)',
           }}
           onClick={handleSend}
           disabled={!text.trim() || sending}
@@ -643,12 +722,13 @@ function MessageBubble({
   const reactionGroups = groupReactions(msgReactions, myPk)
 
   let fileContent: { file_name?: string; mime_type?: string; data?: string } | null = null
-  if ((msg.content_type === 'file' || msg.content_type === 'image') && !msg.is_deleted && msg.edited_at === null) {
+  if ((msg.content_type === 'file' || msg.content_type === 'image' || msg.content_type === 'audio') && !msg.is_deleted) {
     try { fileContent = JSON.parse(text) } catch {}
   }
 
   const isImage = fileContent?.mime_type?.startsWith('image/') && fileContent.data
-  const isFile  = fileContent?.file_name && !isImage
+  const isAudio = fileContent?.mime_type?.startsWith('audio/') && fileContent.data
+  const isFile  = fileContent?.file_name && !isImage && !isAudio
 
   return (
     <div style={{
@@ -706,7 +786,7 @@ function MessageBubble({
             background: isMine ? 'var(--bubble-out-bg)' : 'var(--bubble-in-bg)',
             color: isMine ? 'var(--bubble-out-text)' : 'var(--bubble-in-text)',
             borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-            padding: isImage ? 4 : '8px 12px 22px',
+            padding: (isImage || isAudio) ? 4 : '8px 12px 22px',
             boxShadow: '0 1px 2px var(--shadow)',
             wordBreak: 'break-word',
             cursor: 'default',
@@ -734,11 +814,23 @@ function MessageBubble({
                 <button className="btn-icon" style={{ fontSize: 11 }} onClick={onEditCancel}>✕</button>
               </div>
             </div>
+          ) : isAudio ? (
+            <div style={{ padding: '8px 10px 22px', minWidth: 220 }}>
+              <audio
+                controls
+                src={`data:${fileContent!.mime_type};base64,${fileContent!.data}`}
+                style={{ display: 'block', width: '100%', height: 36, outline: 'none' }}
+              />
+              <div className="bubble-meta" style={{ color: isMine ? 'var(--bubble-out-meta)' : 'var(--bubble-in-meta)' }}>
+                <span>{time}</span>
+                {isMine && <StatusIcon status={msg.status} />}
+              </div>
+            </div>
           ) : isImage ? (
             <>
               <img
                 src={`data:${fileContent!.mime_type};base64,${fileContent!.data}`}
-                style={{ maxWidth: 280, maxHeight: 280, borderRadius: 14, display: 'block' }}
+                style={{ maxWidth: 280, maxHeight: 280, display: 'block' }}
                 alt={fileContent!.file_name}
               />
               <div style={{ padding: '4px 6px 2px', fontSize: 11, display: 'flex', justifyContent: 'flex-end', gap: 4,

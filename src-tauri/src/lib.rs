@@ -672,7 +672,9 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                             if val.get("file_name").is_some() && val.get("data").is_some() {
                                 let fname = val["file_name"].as_str().unwrap_or("файл");
                                 let mime  = val["mime_type"].as_str().unwrap_or("");
-                                let ct = if mime.starts_with("image/") { "image" } else { "file" };
+                                let ct = if mime.starts_with("image/") { "image" }
+                                 else if mime.starts_with("audio/") { "audio" }
+                                 else { "file" };
                                 (ct.to_string(), format!("[{}]", fname), Some(decrypted_text.clone()))
                             } else {
                                 ("text".to_string(), decrypted_text.clone(), None)
