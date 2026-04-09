@@ -79,14 +79,31 @@ impl LanNetwork {
                     if let Ok((n, addr)) = socket.recv_from(&mut buf) {
                         if let Ok(pkt) = serde_json::from_slice::<PresencePacket>(&buf[..n]) {
                             if pkt.public_key != pk && pkt.packet_type == "presence" {
+                                let is_new = !peers_udp.lock().unwrap().contains_key(&pkt.public_key);
                                 let peer = LanPeer {
-                                    nickname: pkt.nickname,
+                                    nickname: pkt.nickname.clone(),
                                     public_key: pkt.public_key.clone(),
                                     addr: addr.ip().to_string(),
                                     port: pkt.port,
                                     version: pkt.version,
                                 };
-                                peers_udp.lock().unwrap().insert(pkt.public_key, peer);
+                                peers_udp.lock().unwrap().insert(pkt.public_key.clone(), peer);
+                                // При первом обнаружении пира — шлём ему hello с нашими данными
+                                if is_new {
+                                    let hello = make_hello_packet(&pk, &nick, "", "online", "");
+                                    // Отправляем hello напрямую по TCP
+                                    let peer_addr = format!("{}:{}", addr.ip(), pkt.port);
+                                    let _ = send_packet_to_addr(&peer_addr, &hello);
+                                    // Также уведомляем основной loop чтобы он мог послать hello с аватаркой
+                                    let hello_notify = LanPacket {
+                                        v: 1,
+                                        packet_type: "peer_discovered".to_string(),
+                                        id: uuid::Uuid::new_v4().to_string(),
+                                        ts: chrono::Utc::now().timestamp(),
+                                        payload: serde_json::json!({ "pk": pkt.public_key }),
+                                    };
+                                    tx.send((pkt.public_key, hello_notify)).ok();
+                                }
                             }
                         }
                     }
@@ -183,6 +200,18 @@ fn handle_tcp_connection(
     }
 }
 
+/// Отправить пакет напрямую по адресу (без поиска в peers map)
+pub fn send_packet_to_addr(addr: &str, packet: &LanPacket) -> anyhow::Result<()> {
+    let sock_addr: SocketAddr = addr.parse()?;
+    let mut stream = TcpStream::connect_timeout(&sock_addr, Duration::from_secs(3))?;
+    let data = serde_json::to_vec(packet)?;
+    let len = (data.len() as u32).to_be_bytes();
+    stream.write_all(&len)?;
+    stream.write_all(&data)?;
+    stream.flush()?;
+    Ok(())
+}
+
 /// Создать LAN пакет-сообщение
 pub fn make_message_packet(
     sender_pk: &str,
@@ -198,13 +227,19 @@ pub fn make_message_packet(
 }
 
 /// Пакет handshake (hello)
-pub fn make_hello_packet(pk: &str, nickname: &str) -> LanPacket {
+pub fn make_hello_packet(pk: &str, nickname: &str, avatar: &str, status: &str, status_text: &str) -> LanPacket {
     LanPacket {
         v: 1,
         packet_type: "hello".to_string(),
         id: uuid::Uuid::new_v4().to_string(),
         ts: chrono::Utc::now().timestamp(),
-        payload: serde_json::json!({ "pk": pk, "nickname": nickname }),
+        payload: serde_json::json!({
+            "pk": pk,
+            "nickname": nickname,
+            "avatar": avatar,
+            "status": status,
+            "status_text": status_text,
+        }),
     }
 }
 

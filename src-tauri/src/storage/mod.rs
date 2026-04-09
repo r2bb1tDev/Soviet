@@ -18,6 +18,7 @@ pub struct DbContact {
     pub is_favorite: bool,
     pub added_at: i64,
     pub verified: bool,
+    pub avatar_data: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -239,6 +240,16 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
     // Add new columns to nostr_messages (silently ignored if already present)
     let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN edited_at INTEGER", []);
     let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN is_deleted INTEGER DEFAULT 0", []);
+    // Avatar column for contacts (silently ignored if already present)
+    let _ = conn.execute("ALTER TABLE contacts ADD COLUMN avatar_data TEXT", []);
+    Ok(())
+}
+
+pub fn set_contact_avatar(conn: &Connection, public_key: &str, avatar_data: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE contacts SET avatar_data=?1 WHERE public_key=?2",
+        params![avatar_data, public_key],
+    )?;
     Ok(())
 }
 
@@ -386,7 +397,7 @@ pub fn upsert_contact(conn: &Connection, c: &DbContact) -> anyhow::Result<()> {
 pub fn get_contacts(conn: &Connection) -> anyhow::Result<Vec<DbContact>> {
     let mut stmt = conn.prepare(
         "SELECT id,public_key,nickname,local_alias,status,status_text,
-                last_seen,notes,is_blocked,is_favorite,added_at,verified
+                last_seen,notes,is_blocked,is_favorite,added_at,verified,avatar_data
          FROM contacts WHERE is_blocked=0
          ORDER BY CASE status
              WHEN 'online' THEN 0 WHEN 'away' THEN 1 WHEN 'busy' THEN 2
@@ -406,6 +417,7 @@ pub fn get_contacts(conn: &Connection) -> anyhow::Result<Vec<DbContact>> {
             is_favorite: r.get::<_,i64>(9)? != 0,
             added_at: r.get(10)?,
             verified: r.get::<_,i64>(11)? != 0,
+            avatar_data: r.get(12).unwrap_or(None),
         })
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())

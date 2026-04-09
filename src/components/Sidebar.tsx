@@ -149,6 +149,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
             is_favorite: false,
             added_at: 0,
             verified: false,
+            avatar_data: myAvatar,
           })}
         >
           {myAvatar
@@ -548,8 +549,11 @@ function ContactRow({ contact, active, unread, displayName, lastMsg, lastTime, o
       onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)' }}
       onMouseLeave={e => { e.currentTarget.style.background = active ? 'var(--row-active-bg)' : 'transparent' }}
     >
-      <div style={{ ...row.avatar, background: avatarColor }}>
-        {initials}
+      <div style={{ ...row.avatar, background: contact.avatar_data ? 'transparent' : avatarColor }}>
+        {contact.avatar_data
+          ? <img src={contact.avatar_data} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+          : initials
+        }
         <span className={`status-dot ${contact.status}`} style={row.statusDot} />
       </div>
       <div style={row.info}>

@@ -25,12 +25,13 @@ function playNotificationBeep() {
     osc2.frequency.setValueAtTime(1320, ctx.currentTime + 0.08)
     gain.gain.setValueAtTime(0, ctx.currentTime)
     gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.01)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
     osc1.start(ctx.currentTime)
     osc1.stop(ctx.currentTime + 0.15)
     osc2.start(ctx.currentTime + 0.08)
-    osc2.stop(ctx.currentTime + 0.35)
-    ctx.close()
+    osc2.stop(ctx.currentTime + 0.4)
+    // Закрываем контекст ПОСЛЕ окончания звука, иначе он обрывается
+    setTimeout(() => ctx.close(), 600)
   } catch { /* браузер заблокировал AudioContext — молча игнорируем */ }
 }
 
@@ -143,9 +144,19 @@ export default function App() {
       sender_pk: string; sender_name: string; preview: string
     }>('new-message', async (e) => {
       const { chat_id, sender_pk, sender_name, preview } = e.payload
-      loadChats()
-      const { activeChat } = useStore.getState()
-      if (activeChat?.id === chat_id || activeChat?.peer_key === sender_pk) {
+      // Сначала перезагружаем чаты чтобы создался chat с реальным id
+      await loadChats()
+      const { activeChat, setActiveChat, chats } = useStore.getState()
+      const isActive =
+        activeChat?.id === chat_id ||
+        activeChat?.peer_key === sender_pk ||
+        (activeChat?.id === -1 && activeChat?.peer_key === sender_pk)
+      if (isActive) {
+        // Если чат был временным (id=-1), обновляем его реальным объектом
+        if (activeChat?.id === -1) {
+          const realChat = useStore.getState().chats.find(c => c.id === chat_id)
+          if (realChat) setActiveChat(realChat)
+        }
         loadMessages(chat_id)
       } else {
         addToast({ type: 'message', title: sender_name, body: preview, chatId: chat_id, senderPk: sender_pk })
@@ -174,8 +185,8 @@ export default function App() {
     })
 
     // ── Статус контакта ───────────────────────────────────────────────────────
-    const unlisten6 = listen<{ pk: string; status: string }>('contact-status', (e) => {
-      updateContactStatus(e.payload.pk, e.payload.status)
+    const unlisten6 = listen<{ pk: string; status: string; status_text?: string; avatar?: string }>('contact-status', (e) => {
+      updateContactStatus(e.payload.pk, e.payload.status, e.payload.status_text, e.payload.avatar)
     })
 
     // ── Read receipt ──────────────────────────────────────────────────────────

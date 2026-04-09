@@ -748,12 +748,52 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
             if !pk.is_empty() {
                 let state: tauri::State<AppState> = app.state();
                 let db = state.db.0.lock().unwrap();
-                storage::update_contact_status(&db, &pk, "online", None).ok();
+                let status = packet.payload.get("status")
+                    .and_then(|v| v.as_str()).unwrap_or("online");
+                let status_text = packet.payload.get("status_text")
+                    .and_then(|v| v.as_str()).unwrap_or("");
+                let avatar = packet.payload.get("avatar")
+                    .and_then(|v| v.as_str()).unwrap_or("");
+                storage::update_contact_status(&db, &pk, status, Some(status_text)).ok();
+                // Сохраняем аватарку если контакт известен и аватарка пришла
+                if !avatar.is_empty() {
+                    storage::set_contact_avatar(&db, &pk, avatar).ok();
+                }
                 drop(db);
                 app.emit("contact-status", serde_json::json!({
                     "pk": pk,
-                    "status": "online",
+                    "status": status,
+                    "status_text": status_text,
+                    "avatar": avatar,
                 })).ok();
+            }
+        }
+
+        "peer_discovered" => {
+            // Новый пир найден в LAN — отправляем ему полный hello с аватаркой
+            let peer_pk = packet.payload.get("pk")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !peer_pk.is_empty() {
+                let state: tauri::State<AppState> = app.state();
+                let (my_pk, my_nick, my_avatar, my_status, my_status_text) = {
+                    let id = state.identity.lock().unwrap();
+                    let db = state.db.0.lock().unwrap();
+                    let get = |k: &str| storage::get_setting(&db, k).ok().flatten().unwrap_or_default();
+                    (
+                        id.as_ref().map(|i| i.public_key.clone()).unwrap_or_default(),
+                        id.as_ref().map(|i| i.nickname.clone()).unwrap_or_default(),
+                        get("avatar_data"),
+                        get("status"),
+                        get("status_text"),
+                    )
+                };
+                if !my_pk.is_empty() {
+                    let hello = network::make_hello_packet(&my_pk, &my_nick, &my_avatar, &my_status, &my_status_text);
+                    let lan_guard = state.lan.lock().unwrap();
+                    if let Some(lan) = lan_guard.as_ref() {
+                        lan.send_to_peer(&peer_pk, &hello).ok();
+                    }
+                }
             }
         }
 

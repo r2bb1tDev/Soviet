@@ -308,7 +308,7 @@ export default function Settings() {
 
         <Section title="О приложении">
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            <div><b>Soviet Messenger</b> v1.3.2</div>
+            <div><b>Soviet Messenger</b> v1.3.3</div>
             <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 12 }}>
               Разработано командой <b style={{ color: 'var(--accent)' }}>FSOCIETY</b> × <b style={{ color: 'var(--accent)' }}>LURKHUB</b>
             </div>

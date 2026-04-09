@@ -84,7 +84,10 @@ export default function ContactProfile({ contact, onClose }: Props) {
         {/* Аватар */}
         <div style={s.avatarSection}>
           <div style={s.avatar}>
-            {displayName.charAt(0).toUpperCase()}
+            {contact.avatar_data
+              ? <img src={contact.avatar_data} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+              : displayName.charAt(0).toUpperCase()
+            }
             <span className={`status-dot ${contact.status}`} style={s.statusDot} />
           </div>
           <div style={s.name}>{displayName}</div>

@@ -23,6 +23,7 @@ export interface Contact {
   is_favorite: boolean
   added_at: number
   verified: boolean
+  avatar_data: string | null
 }
 
 export interface Message {
@@ -185,7 +186,7 @@ interface AppStore {
   loadP2pPeers: () => Promise<void>
   addContact: (pk: string, nick: string) => Promise<void>
   deleteContact: (pk: string) => Promise<void>
-  updateContactStatus: (pk: string, status: string) => void
+  updateContactStatus: (pk: string, status: string, statusText?: string, avatar?: string) => void
 
   // Contact Requests
   contactRequests: ContactRequest[]
@@ -344,10 +345,15 @@ export const useStore = create<AppStore>((set, get) => ({
     await invoke('delete_contact', { publicKey: pk })
     get().loadContacts()
   },
-  updateContactStatus: (pk, status) => {
+  updateContactStatus: (pk, status, statusText?: string, avatar?: string) => {
     set(s => ({
       contacts: s.contacts.map(c =>
-        c.public_key === pk ? { ...c, status: status as any } : c
+        c.public_key === pk ? {
+          ...c,
+          status: status as any,
+          ...(statusText !== undefined ? { status_text: statusText } : {}),
+          ...(avatar ? { avatar_data: avatar } : {}),
+        } : c
       )
     }))
   },
