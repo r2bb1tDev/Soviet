@@ -33,3 +33,7 @@ desktop.ini
 .idea/
 *.suo
 *.user
+
+# Nested repos / mobile
+mobile/
+soviet/
