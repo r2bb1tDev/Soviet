@@ -459,6 +459,7 @@ fn send_message(
         reply_to: None,
         edited_at: None,
         is_deleted: false,
+        plaintext: Some(text.clone()),
     };
 
     // Сохраняем с текстовым превью для сайдбара (мы знаем plaintext)
@@ -676,6 +677,7 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                         reply_to: None,
         edited_at: None,
         is_deleted: false,
+        plaintext: None,
                     };
 
                     if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview, &preview) {
@@ -839,6 +841,7 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                         reply_to: None,
         edited_at: None,
         is_deleted: false,
+        plaintext: None,
                     };
                     if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview, &plain) {
                         storage::increment_unread(&db, chat_id).ok();
@@ -1151,6 +1154,7 @@ fn send_file(
         reply_to: None,
         edited_at: None,
         is_deleted: false,
+        plaintext: None,
     };
     let msg_id = storage::save_message_with_preview(&db, &msg, &preview, &file_name)
         .map_err(|e| e.to_string())?;
@@ -1254,6 +1258,7 @@ fn send_group_message(
         reply_to: None,
         edited_at: None,
         is_deleted: false,
+        plaintext: None,
     };
     let msg_id = storage::save_message_with_preview(&db, &msg, &preview, &text).map_err(|e| e.to_string())?;
     // Queue plaintext for later per-member encryption/retry (MVP: LAN only)
