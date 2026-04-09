@@ -214,6 +214,7 @@ fn add_contact(
         is_favorite: false,
         added_at: chrono::Utc::now().timestamp(),
         verified: false,
+        avatar_data: None,
     };
     let db = state.db.0.lock().unwrap();
     storage::upsert_contact(&db, &contact).map_err(|e| e.to_string())
@@ -289,6 +290,7 @@ fn accept_contact_request(
         is_favorite: false,
         added_at: chrono::Utc::now().timestamp(),
         verified: false,
+        avatar_data: None,
     };
     storage::upsert_contact(&db, &contact).map_err(|e| e.to_string())?;
     storage::update_request_status(&db, &public_key, "accepted").map_err(|e| e.to_string())

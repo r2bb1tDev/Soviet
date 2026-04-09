@@ -69,9 +69,11 @@ impl LanNetwork {
         let pk = self.my_pk.clone();
         let nick = self.my_nickname.clone();
         let tx = self.message_tx.clone();
+        let tx_udp = tx.clone();
 
         // UDP listener (принимаем broadcast presence пакеты)
         std::thread::spawn(move || {
+            let tx = tx_udp;
             if let Ok(socket) = UdpSocket::bind(format!("0.0.0.0:{}", LAN_DISCOVERY_PORT)) {
                 socket.set_read_timeout(Some(Duration::from_secs(2))).ok();
                 let mut buf = [0u8; 4096];
