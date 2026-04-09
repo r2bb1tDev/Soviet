@@ -2,13 +2,15 @@ use std::net::{SocketAddr, UdpSocket, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use serde::{Serialize, Deserialize};
 use tokio::sync::mpsc;
 
 pub const LAN_PORT: u16 = 7778;
 pub const LAN_DISCOVERY_PORT: u16 = 7779;
 pub const ANNOUNCE_INTERVAL_SECS: u64 = 30;
+/// Пир считается offline если не было presence-пакета дольше 90 сек
+const PEER_TTL_SECS: u64 = 90;
 
 /// Пир обнаруженный в локальной сети
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -18,6 +20,8 @@ pub struct LanPeer {
     pub addr: String,
     pub port: u16,
     pub version: u8,
+    #[serde(skip, default = "Instant::now")]
+    pub last_seen: Instant,
 }
 
 /// Пакет UDP broadcast (обнаружение в LAN)
@@ -63,7 +67,7 @@ impl LanNetwork {
         }
     }
 
-    /// Запуск LAN: UDP listener + broadcaster + TCP listener
+    /// Запуск LAN: UDP listener + broadcaster + TCP listener + TTL cleanup
     pub fn start(&self) -> anyhow::Result<()> {
         let peers_udp = Arc::clone(&self.peers);
         let pk = self.my_pk.clone();
@@ -71,7 +75,7 @@ impl LanNetwork {
         let tx = self.message_tx.clone();
         let tx_udp = tx.clone();
 
-        // UDP listener (принимаем broadcast presence пакеты)
+        // UDP listener — принимаем broadcast presence пакеты
         std::thread::spawn(move || {
             let tx = tx_udp;
             if let Ok(socket) = UdpSocket::bind(format!("0.0.0.0:{}", LAN_DISCOVERY_PORT)) {
@@ -81,22 +85,30 @@ impl LanNetwork {
                     if let Ok((n, addr)) = socket.recv_from(&mut buf) {
                         if let Ok(pkt) = serde_json::from_slice::<PresencePacket>(&buf[..n]) {
                             if pkt.public_key != pk && pkt.packet_type == "presence" {
-                                let is_new = !peers_udp.lock().unwrap().contains_key(&pkt.public_key);
-                                let peer = LanPeer {
-                                    nickname: pkt.nickname.clone(),
-                                    public_key: pkt.public_key.clone(),
-                                    addr: addr.ip().to_string(),
-                                    port: pkt.port,
-                                    version: pkt.version,
+                                let is_new = {
+                                    let mut peers = peers_udp.lock().unwrap();
+                                    let was_new = !peers.contains_key(&pkt.public_key);
+                                    // Обновляем или вставляем пира с текущим временем
+                                    let peer = LanPeer {
+                                        nickname: pkt.nickname.clone(),
+                                        public_key: pkt.public_key.clone(),
+                                        addr: addr.ip().to_string(),
+                                        port: pkt.port,
+                                        version: pkt.version,
+                                        last_seen: Instant::now(),
+                                    };
+                                    peers.insert(pkt.public_key.clone(), peer);
+                                    was_new
                                 };
-                                peers_udp.lock().unwrap().insert(pkt.public_key.clone(), peer);
-                                // При первом обнаружении пира — шлём ему hello с нашими данными
+
+                                // При ЛЮБОМ presence — отвечаем hello (синхронизация статуса)
+                                // Для нового пира шлём немедленно, для известного — тоже (каждые 30с)
+                                let hello = make_hello_packet(&pk, &nick, "", "online", "");
+                                let peer_addr = format!("{}:{}", addr.ip(), pkt.port);
+                                let _ = send_packet_to_addr(&peer_addr, &hello);
+
                                 if is_new {
-                                    let hello = make_hello_packet(&pk, &nick, "", "online", "");
-                                    // Отправляем hello напрямую по TCP
-                                    let peer_addr = format!("{}:{}", addr.ip(), pkt.port);
-                                    let _ = send_packet_to_addr(&peer_addr, &hello);
-                                    // Также уведомляем основной loop чтобы он мог послать hello с аватаркой
+                                    // Уведомляем основной loop чтобы он послал hello с аватаркой
                                     let hello_notify = LanPacket {
                                         v: 1,
                                         packet_type: "peer_discovered".to_string(),
@@ -105,6 +117,16 @@ impl LanNetwork {
                                         payload: serde_json::json!({ "pk": pkt.public_key }),
                                     };
                                     tx.send((pkt.public_key, hello_notify)).ok();
+                                } else {
+                                    // Для уже известного пира тоже шлём полный hello с аватаркой
+                                    let hello_full = LanPacket {
+                                        v: 1,
+                                        packet_type: "peer_discovered".to_string(),
+                                        id: uuid::Uuid::new_v4().to_string(),
+                                        ts: chrono::Utc::now().timestamp(),
+                                        payload: serde_json::json!({ "pk": pkt.public_key }),
+                                    };
+                                    tx.send((pkt.public_key, hello_full)).ok();
                                 }
                             }
                         }
@@ -113,7 +135,7 @@ impl LanNetwork {
             }
         });
 
-        // UDP broadcaster (объявляем себя каждые 30 сек)
+        // UDP broadcaster — объявляем себя каждые 30 сек
         let pk_bc = self.my_pk.clone();
         let nick_bc = self.my_nickname.clone();
         std::thread::spawn(move || {
@@ -134,7 +156,7 @@ impl LanNetwork {
             }
         });
 
-        // TCP listener (принимаем входящие соединения)
+        // TCP listener — принимаем входящие соединения
         let tx_tcp = tx;
         std::thread::spawn(move || {
             if let Ok(listener) = TcpListener::bind(format!("0.0.0.0:{}", LAN_PORT)) {
@@ -143,6 +165,21 @@ impl LanNetwork {
                     std::thread::spawn(move || {
                         handle_tcp_connection(stream, tx2);
                     });
+                }
+            }
+        });
+
+        // TTL cleanup — удаляем устаревших пиров каждые 60 сек
+        let peers_ttl = Arc::clone(&self.peers);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(60));
+                let mut peers = peers_ttl.lock().unwrap();
+                let before = peers.len();
+                peers.retain(|_, p| p.last_seen.elapsed().as_secs() < PEER_TTL_SECS);
+                let removed = before - peers.len();
+                if removed > 0 {
+                    eprintln!("[LAN] TTL cleanup: removed {} stale peer(s)", removed);
                 }
             }
         });
@@ -167,14 +204,17 @@ impl LanNetwork {
         Ok(())
     }
 
-    /// Список пиров в LAN
+    /// Список пиров в LAN (только живые)
     pub fn get_peers(&self) -> Vec<LanPeer> {
         self.peers.lock().unwrap().values().cloned().collect()
     }
 
-    /// Peer online?
+    /// Peer online? (живой — последний presence был в пределах TTL)
     pub fn is_peer_online(&self, pk: &str) -> bool {
-        self.peers.lock().unwrap().contains_key(pk)
+        self.peers.lock().unwrap()
+            .get(pk)
+            .map(|p| p.last_seen.elapsed().as_secs() < PEER_TTL_SECS)
+            .unwrap_or(false)
     }
 }
 
@@ -192,10 +232,10 @@ fn handle_tcp_connection(
     if stream.read_exact(&mut data).is_err() { return; }
 
     if let Ok(packet) = serde_json::from_slice::<LanPacket>(&data) {
-        // Извлекаем sender_pk из payload
         let sender_pk = packet.payload
             .get("sender_pk")
             .and_then(|v| v.as_str())
+            .or_else(|| packet.payload.get("pk").and_then(|v| v.as_str()))
             .unwrap_or("")
             .to_string();
         tx.send((sender_pk, packet)).ok();
@@ -267,7 +307,7 @@ pub fn make_typing_packet(sender_pk: &str, is_typing: bool) -> LanPacket {
     }
 }
 
-/// Пакет группового сообщения (broadcast всем членам)
+/// Пакет группового сообщения
 pub fn make_group_message_packet(sender_pk: &str, group_id: &str, encrypted_content: &str) -> LanPacket {
     LanPacket {
         v: 1,
@@ -298,7 +338,7 @@ pub fn make_group_invite_packet(sender_pk: &str, group_id: &str, group_name: &st
     }
 }
 
-/// Пакет уведомления о прочтении сообщений в чате
+/// Пакет уведомления о прочтении
 pub fn make_read_receipt_packet(sender_pk: &str, chat_peer_pk: &str) -> LanPacket {
     LanPacket {
         v: 1,
@@ -356,7 +396,7 @@ pub fn make_member_left_packet(sender_pk: &str, group_id: &str, nickname: &str) 
     }
 }
 
-/// Пакет роспуска группы (только создатель)
+/// Пакет роспуска группы
 pub fn make_group_dissolved_packet(sender_pk: &str, group_id: &str) -> LanPacket {
     LanPacket {
         v: 1,

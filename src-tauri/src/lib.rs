@@ -645,7 +645,6 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
             if let Ok(encrypted) = serde_json::from_value::<crypto::EncryptedMessage>(packet.payload.clone()) {
                 let state: tauri::State<AppState> = app.state();
 
-                // Игнорируем свои собственные сообщения
                 let my_pk = state.identity.lock().unwrap()
                     .as_ref()
                     .map(|i| i.public_key.clone())
@@ -655,9 +654,9 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                 let db = state.db.0.lock().unwrap();
 
                 if let Ok(chat_id) = storage::get_or_create_direct_chat(&db, &encrypted.sender_pk) {
-                    // Расшифровываем для превью и уведомления
+                    // Расшифровываем сообщение
                     let kp_guard = state.keypair.lock().unwrap();
-                    let preview = if let Some(kp) = kp_guard.as_ref() {
+                    let decrypted_text = if let Some(kp) = kp_guard.as_ref() {
                         crypto::decrypt_message(kp, &encrypted)
                             .ok()
                             .and_then(|b| String::from_utf8(b).ok())
@@ -667,26 +666,40 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                     };
                     drop(kp_guard);
 
+                    // Определяем тип контента: файл/изображение или текст
+                    let (content_type, preview, plaintext_stored) =
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&decrypted_text) {
+                            if val.get("file_name").is_some() && val.get("data").is_some() {
+                                let fname = val["file_name"].as_str().unwrap_or("файл");
+                                let mime  = val["mime_type"].as_str().unwrap_or("");
+                                let ct = if mime.starts_with("image/") { "image" } else { "file" };
+                                (ct.to_string(), format!("[{}]", fname), Some(decrypted_text.clone()))
+                            } else {
+                                ("text".to_string(), decrypted_text.clone(), None)
+                            }
+                        } else {
+                            ("text".to_string(), decrypted_text.clone(), None)
+                        };
+
                     let content_json = serde_json::to_string(&encrypted).unwrap_or_default();
                     let msg = DbMessage {
                         id: 0,
                         chat_id,
                         sender_key: encrypted.sender_pk.clone(),
                         content: content_json,
-                        content_type: "text".to_string(),
+                        content_type,
                         timestamp: encrypted.timestamp,
                         status: "delivered".to_string(),
                         reply_to: None,
-        edited_at: None,
-        is_deleted: false,
-        plaintext: None,
+                        edited_at: None,
+                        is_deleted: false,
+                        plaintext: plaintext_stored,
                     };
 
                     if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview, &preview) {
                         storage::increment_unread(&db, chat_id).ok();
                         drop(db);
 
-                        // Имя отправителя для уведомления
                         let db2 = state.db.0.lock().unwrap();
                         let sender_name = storage::get_contacts(&db2).unwrap_or_default()
                             .into_iter()
@@ -695,8 +708,8 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                             .unwrap_or_else(|| "Неизвестный".to_string());
                         drop(db2);
 
-                        let preview_short = if preview.len() > 100 {
-                            format!("{}...", &preview[..100])
+                        let preview_short = if preview.chars().count() > 100 {
+                            format!("{}...", preview.chars().take(100).collect::<String>())
                         } else {
                             preview.clone()
                         };
@@ -709,7 +722,16 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                             "preview": preview_short,
                         })).ok();
 
-                        // Переключаем иконку трея на "медведь с конвертом"
+                        // OS уведомление
+                        use tauri_plugin_notification::NotificationExt;
+                        app.notification()
+                            .builder()
+                            .title(&sender_name)
+                            .body(&preview_short)
+                            .show()
+                            .ok();
+
+                        // Иконка трея — "медведь с конвертом"
                         if let Some(tray) = app.tray_by_id("main-tray") {
                             if let Ok(icon) = tauri::image::Image::from_bytes(TRAY_MSG_PNG) {
                                 tray.set_icon(Some(icon)).ok();

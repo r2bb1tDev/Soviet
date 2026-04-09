@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { getVersion } from '@tauri-apps/api/app'
 import { useStore } from '../store'
 import BearLogo from '../components/BearLogo'
 import ShareCard from '../components/ShareCard'
@@ -22,6 +23,7 @@ export default function Settings() {
   const [invisibleList, setInvisibleList] = useState('')
   const [ignoreList, setIgnoreList] = useState('')
   const [saved, setSaved] = useState(false)
+  const [appVersion, setAppVersion] = useState('...')
   const [copiedPub, setCopiedPub] = useState(false)
   const [copiedPriv, setCopiedPriv] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(myAvatar)
@@ -48,6 +50,7 @@ export default function Settings() {
     invoke<any[]>('get_p2p_peers').then(peers => {
       if (peers.length > 0 && peers[0]?.peer_id) setP2pPeerId(peers[0].peer_id)
     }).catch(() => {})
+    getVersion().then(setAppVersion).catch(() => setAppVersion('?'))
   }, [])
 
   const handleAvatarClick = () => fileInputRef.current?.click()
@@ -308,7 +311,7 @@ export default function Settings() {
 
         <Section title="О приложении">
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            <div><b>Soviet Messenger</b> v1.3.3</div>
+            <div><b>Soviet Messenger</b> v{appVersion}</div>
             <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 12 }}>
               Разработано командой <b style={{ color: 'var(--accent)' }}>FSOCIETY</b> × <b style={{ color: 'var(--accent)' }}>LURKHUB</b>
             </div>

@@ -301,7 +301,10 @@ export default function ChatWindow() {
           style={s.headerAvatar}
           onClick={() => !isGroup && contactForChat && setShowProfile(true)}
         >
-          {avatarLetter}
+          {!isGroup && contactForChat?.avatar_data
+            ? <img src={contactForChat.avatar_data} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+            : avatarLetter
+          }
           {!isGroup && contactForChat && (
             <span className={`status-dot ${contactForChat.status}`} style={s.headerDot} />
           )}
