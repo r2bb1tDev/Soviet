@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
+import { check as checkUpdate } from '@tauri-apps/plugin-updater'
 import { useStore } from './store'
 import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
@@ -56,18 +57,25 @@ export default function App() {
 
   const checkForUpdates = async () => {
     try {
-      const update = await invoke<any>('plugin:updater|check_update')
-      if (update.shouldUpdate) {
+      const update = await checkUpdate()
+      // Tauri v2: check() возвращает объект Update если есть обновление, иначе null
+      if (update) {
         setUpdateInfo(update)
         setUpdateAvailable(true)
       }
-    } catch { /* нет обновлений или нет сети */ }
+    } catch (e) {
+      // Тихо игнорируем (нет сети, подпись не прошла и т.д.)
+      console.warn('[updater] check failed:', e)
+    }
   }
 
   const handleInstallUpdate = async () => {
     try {
-      await invoke<any>('plugin:updater|install_update')
+      if (updateInfo) {
+        await updateInfo.downloadAndInstall()
+      }
     } catch (error) {
+      console.error('[updater] install failed:', error)
       addToast({ type: 'error', title: 'Ошибка обновления', body: 'Не удалось установить обновление' })
     }
   }
@@ -296,10 +304,10 @@ export default function App() {
             <div style={{ fontSize: 32, marginBottom: 8 }}>🐻</div>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Доступно обновление</div>
             <div style={{ color: 'var(--text-secondary)', marginBottom: 4 }}>
-              Версия {updateInfo.manifest?.version}
+              Версия {updateInfo.version}
             </div>
             <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
-              {updateInfo.manifest?.body || 'Новая версия готова к установке.'}
+              {updateInfo.body || 'Новая версия готова к установке.'}
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
               <button onClick={() => setUpdateAvailable(false)} style={btnSecondary}>
