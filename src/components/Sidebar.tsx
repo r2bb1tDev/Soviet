@@ -94,6 +94,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
       last_message: null,
       last_message_time: null,
       unread_count: 0,
+      group_name: null,
     })
     setContextMenu(null)
   }

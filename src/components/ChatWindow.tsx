@@ -44,7 +44,7 @@ export default function ChatWindow() {
   const textareaRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastEnterRef = useRef<number>(0)
+
   // В проекте уже есть события Tauri (`new-message`, `group-message`), поэтому
   // polling здесь не нужен и добавляет задержки/нагрузку.
 

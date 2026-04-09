@@ -62,6 +62,7 @@ export default function ContactProfile({ contact, onClose }: Props) {
         last_message: null,
         last_message_time: null,
         unread_count: 0,
+        group_name: null,
       })
     }
     setPage('main')
