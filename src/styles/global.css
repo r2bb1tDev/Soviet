@@ -1,144 +1,77 @@
 /* ═══════════════════════════════════════════════════════════════
-   Soviet — Global Styles
-   Telegram-parity design tokens + bubble classes
+   SOVIET MESSENGER — Terminal / MS-DOS UI
+   Green phosphor CRT aesthetic
 ═══════════════════════════════════════════════════════════════ */
 
-/* ── CSS Variables — Light Theme (default) ── */
-:root, [data-theme="light"] {
-  /* Backgrounds */
-  --bg-primary:         #FFFFFF;
-  --bg-secondary:       #F1F1F1;
-  --bg-tertiary:        #E4E4E4;
-  --bg-hover:           #D9D9D9;
-  --bg-chat:            #DAE8F5;   /* Telegram chat area background */
-  --bg-sidebar:         #FFFFFF;
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap');
 
-  /* Accent — Telegram blue */
-  --accent:             #2AABEE;
-  --accent-hover:       #1A9ADB;
-  --accent-text:        #FFFFFF;
+/* ── Terminal Theme (default + light) ── */
+:root, [data-theme="light"], [data-theme="dark"] {
+  /* Backgrounds */
+  --bg-primary:         #0A0A0A;
+  --bg-secondary:       #0D0D0D;
+  --bg-tertiary:        #111111;
+  --bg-hover:           #1A2A1A;
+  --bg-chat:            #050505;
+  --bg-sidebar:         #080808;
+
+  /* Accent — phosphor green */
+  --accent:             #00FF41;
+  --accent-hover:       #00CC33;
+  --accent-text:        #000000;
 
   /* Text */
-  --text-primary:       #000000;
-  --text-secondary:     #707579;
-  --text-muted:         #A2ACB4;
-  --text-link:          #2AABEE;
+  --text-primary:       #00FF41;
+  --text-secondary:     #00BB30;
+  --text-muted:         #006618;
+  --text-link:          #00FFFF;
 
-  /* Bubbles */
-  --bubble-out-bg:      #EFFDDE;   /* outgoing — Telegram green */
-  --bubble-out-text:    #000000;
-  --bubble-out-meta:    #7CB572;   /* timestamp + tick color */
-  --bubble-in-bg:       #FFFFFF;   /* incoming */
-  --bubble-in-text:     #000000;
-  --bubble-in-meta:     #A2ACB4;
-  --bubble-radius:      18px;
-  --bubble-radius-tail: 4px;       /* corner with tail */
+  /* Bubbles — flat, terminal-style */
+  --bubble-out-bg:      #001800;
+  --bubble-out-text:    #00FF41;
+  --bubble-out-meta:    #009922;
+  --bubble-in-bg:       #0A0A0A;
+  --bubble-in-text:     #00FF41;
+  --bubble-in-meta:     #006618;
+  --bubble-radius:      0px;
+  --bubble-radius-tail: 0px;
 
-  /* Channel post bubble */
-  --bubble-channel-bg:  #FFFFFF;
-  --bubble-channel-text:#000000;
-
-  /* Sidebar row */
-  --row-active-bg:      #E8F4FD;
-  --row-unread-badge:   #2AABEE;
-  --row-muted-badge:    #A2ACB4;
-
-  /* Borders */
-  --border:             #E6EBEE;
-  --border-light:       #F0F3F5;
-  --divider:            #E6EBEE;
-
-  /* Status */
-  --online:             #0DC264;
-  --away:               #FFC107;
-  --busy:               #F44336;
-  --offline:            #C4C9CC;
-
-  /* Inputs */
-  --input-bg:           #FFFFFF;
-  --input-border:       #C8C8C8;
-  --input-focus:        #2AABEE;
-  --input-compose-bg:   #FFFFFF;
-
-  /* Misc */
-  --shadow:             rgba(0,0,0,0.10);
-  --shadow-md:          rgba(0,0,0,0.16);
-  --scrollbar:          #C1C9D0;
-  --btn-secondary:      #F1F1F1;
-  --header-bg:          #FFFFFF;
-  --header-text:        #000000;
-  --header-sub:         #707579;
-  --tick-read:          #4FC3F7;
-  --tick-unread:        #A2ACB4;
-}
-
-/* ── CSS Variables — Dark Theme ── */
-[data-theme="dark"] {
-  /* Backgrounds */
-  --bg-primary:         #212121;
-  --bg-secondary:       #181818;
-  --bg-tertiary:        #2B2B2B;
-  --bg-hover:           #333333;
-  --bg-chat:            #0E1621;   /* Telegram dark chat bg */
-  --bg-sidebar:         #212121;
-
-  /* Accent */
-  --accent:             #2AABEE;
-  --accent-hover:       #1A9ADB;
-  --accent-text:        #FFFFFF;
-
-  /* Text */
-  --text-primary:       #FFFFFF;
-  --text-secondary:     #8A9BA8;
-  --text-muted:         #5A6775;
-  --text-link:          #2AABEE;
-
-  /* Bubbles */
-  --bubble-out-bg:      #2B5278;   /* outgoing dark — Telegram dark blue */
-  --bubble-out-text:    #FFFFFF;
-  --bubble-out-meta:    #6AB3F3;
-  --bubble-in-bg:       #182533;   /* incoming dark */
-  --bubble-in-text:     #FFFFFF;
-  --bubble-in-meta:     #5A6775;
-  --bubble-radius:      18px;
-  --bubble-radius-tail: 4px;
-
-  /* Channel post bubble */
-  --bubble-channel-bg:  #182533;
-  --bubble-channel-text:#FFFFFF;
+  /* Channel */
+  --bubble-channel-bg:  #0A0A0A;
+  --bubble-channel-text:#00FF41;
 
   /* Sidebar row */
-  --row-active-bg:      #2B5278;
-  --row-unread-badge:   #2AABEE;
-  --row-muted-badge:    #5A6775;
+  --row-active-bg:      #001800;
+  --row-unread-badge:   #00FF41;
+  --row-muted-badge:    #004411;
 
   /* Borders */
-  --border:             #2B2B2B;
-  --border-light:       #1E1E1E;
-  --divider:            #2B2B2B;
+  --border:             #1A3A1A;
+  --border-light:       #0D200D;
+  --divider:            #1A3A1A;
 
   /* Status */
-  --online:             #0DC264;
-  --away:               #FFC107;
-  --busy:               #F44336;
-  --offline:            #5A6775;
+  --online:             #00FF41;
+  --away:               #FFFF00;
+  --busy:               #FF4141;
+  --offline:            #333333;
 
   /* Inputs */
-  --input-bg:           #2B2B2B;
-  --input-border:       #3A3A3A;
-  --input-focus:        #2AABEE;
-  --input-compose-bg:   #2B2B2B;
+  --input-bg:           #050505;
+  --input-border:       #1A3A1A;
+  --input-focus:        #00FF41;
+  --input-compose-bg:   #050505;
 
   /* Misc */
-  --shadow:             rgba(0,0,0,0.30);
-  --shadow-md:          rgba(0,0,0,0.45);
-  --scrollbar:          #3A3A3A;
-  --btn-secondary:      #2B2B2B;
-  --header-bg:          #212121;
-  --header-text:        #FFFFFF;
-  --header-sub:         #8A9BA8;
-  --tick-read:          #4FC3F7;
-  --tick-unread:        #5A6775;
+  --shadow:             rgba(0,255,65,0.08);
+  --shadow-md:          rgba(0,255,65,0.14);
+  --scrollbar:          #1A3A1A;
+  --btn-secondary:      #0D0D0D;
+  --header-bg:          #050505;
+  --header-text:        #00FF41;
+  --header-sub:         #00BB30;
+  --tick-read:          #00FF41;
+  --tick-unread:        #004411;
 }
 
 /* ── Reset & Base ── */
@@ -147,81 +80,127 @@
 html, body, #root {
   width: 100%; height: 100%;
   overflow: hidden;
-  font-family: -apple-system, "Segoe UI", system-ui, Ubuntu, sans-serif;
+  font-family: 'Share Tech Mono', 'VT323', 'Courier New', 'Lucida Console', monospace;
   font-size: 14px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: none;   /* crisp pixels for terminal feel */
+  image-rendering: pixelated;
   user-select: none;
 }
 
+/* CRT scanline overlay */
+html::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99999;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
+  );
+}
+
+/* Phosphor glow */
+:root { --glow: 0 0 6px rgba(0,255,65,0.4); }
+
 /* ── Scrollbar ── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #000; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* ── Typography ── */
 a { color: var(--text-link); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a:hover { text-decoration: underline; color: #00FFFF; }
 
 /* ── Input / Textarea ── */
 input, textarea {
   background: var(--input-bg);
   color: var(--text-primary);
   border: 1px solid var(--input-border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 14px;
+  border-radius: 0;
+  padding: 6px 10px;
+  font-size: 13px;
   font-family: inherit;
   outline: none;
-  transition: border-color 0.15s;
+  caret-color: var(--accent);
+  transition: border-color 0.1s, box-shadow 0.1s;
 }
-input:focus, textarea:focus { border-color: var(--input-focus); }
+input:focus, textarea:focus {
+  border-color: var(--input-focus);
+  box-shadow: var(--glow);
+}
 input::placeholder, textarea::placeholder { color: var(--text-muted); }
+
+/* Blinking cursor inside compose */
+textarea { caret-color: var(--accent); }
 
 /* ── Buttons ── */
 button {
   cursor: pointer;
   border: none;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 0;
+  font-size: 13px;
   font-family: inherit;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background 0.1s, color 0.1s;
   outline: none;
+  letter-spacing: 0.03em;
 }
-button:active { opacity: 0.8; }
+button:active { opacity: 0.75; }
 
 .btn-primary {
   background: var(--accent);
-  color: var(--accent-text);
-  padding: 9px 20px;
-  font-weight: 600;
+  color: #000;
+  padding: 7px 18px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid var(--accent);
 }
-.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:hover {
+  background: #000;
+  color: var(--accent);
+  box-shadow: var(--glow);
+}
 
 .btn-secondary {
-  background: var(--btn-secondary);
+  background: transparent;
   color: var(--text-primary);
-  padding: 9px 20px;
+  padding: 7px 18px;
+  border: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
-.btn-secondary:hover { background: var(--bg-hover); }
+.btn-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--glow);
+}
 
 .btn-icon {
   background: transparent;
   color: var(--text-secondary);
   padding: 6px;
-  border-radius: 50%;
+  border-radius: 0;
   display: flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px;
+  width: 34px; height: 34px;
+  border: 1px solid transparent;
 }
-.btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-icon:hover {
+  border-color: var(--border);
+  color: var(--accent);
+  box-shadow: var(--glow);
+}
 
 /* ══════════════════════════════════════════════
-   BUBBLE SYSTEM — Telegram-parity
+   BUBBLE SYSTEM — Terminal style
 ══════════════════════════════════════════════ */
 
-/* Container wrapping each bubble row */
 .bubble-row {
   display: flex;
   align-items: flex-end;
@@ -232,42 +211,37 @@ button:active { opacity: 0.8; }
 .bubble-row.out { flex-direction: row-reverse; }
 .bubble-row.in  { flex-direction: row; }
 
-/* First/last in a cluster get the tail; others are flat */
-.bubble-row.first-in-cluster  .bubble { border-bottom-left-radius:  var(--bubble-radius-tail); }
-.bubble-row.first-out-cluster .bubble { border-bottom-right-radius: var(--bubble-radius-tail); }
-
-/* Gap between cluster groups */
-.bubble-row.cluster-start { margin-top: 8px; }
-
-/* The bubble itself */
 .bubble {
   position: relative;
   max-width: 430px;
   min-width: 48px;
-  padding: 6px 10px 22px;   /* bottom pad for meta */
-  border-radius: var(--bubble-radius);
-  font-size: 14px;
-  line-height: 1.45;
+  padding: 6px 10px 22px;
+  border-radius: 0;
+  font-size: 13px;
+  line-height: 1.5;
   word-break: break-word;
   white-space: pre-wrap;
+  font-family: inherit;
 }
 
 .bubble.out {
   background: var(--bubble-out-bg);
   color: var(--bubble-out-text);
-  border-bottom-right-radius: var(--bubble-radius-tail);
+  border-left: 2px solid var(--accent);
+  border-top: 1px solid #004411;
+  border-right: 1px solid #004411;
+  border-bottom: 1px solid #004411;
 }
 .bubble.in {
   background: var(--bubble-in-bg);
   color: var(--bubble-in-text);
-  border-bottom-left-radius: var(--bubble-radius-tail);
+  border-left: 2px solid var(--text-muted);
+  border-top: 1px solid #1A3A1A;
+  border-right: 1px solid #1A3A1A;
+  border-bottom: 1px solid #1A3A1A;
 }
 
-/* Single-bubble cluster — keep full radius */
-.bubble-row.single .bubble.out { border-bottom-right-radius: var(--bubble-radius); }
-.bubble-row.single .bubble.in  { border-bottom-left-radius:  var(--bubble-radius); }
-
-/* Meta line — time + ticks — anchored bottom-right inside bubble */
+/* Meta line */
 .bubble-meta {
   position: absolute;
   bottom: 4px;
@@ -275,10 +249,11 @@ button:active { opacity: 0.8; }
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
   white-space: nowrap;
   pointer-events: none;
+  font-family: inherit;
 }
 .bubble.out .bubble-meta { color: var(--bubble-out-meta); }
 .bubble.in  .bubble-meta { color: var(--bubble-in-meta); }
@@ -289,135 +264,171 @@ button:active { opacity: 0.8; }
 .bubble-tick.read svg { color: var(--tick-read); }
 .bubble-tick.unread svg { color: var(--tick-unread); }
 
-/* Sender name inside bubble (group chats, incoming only) */
+/* Sender name (groups) */
 .bubble-sender {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   margin-bottom: 2px;
   color: var(--accent);
+  text-transform: uppercase;
 }
 
-/* Channel post bubble — no tail, centered, wider */
 .bubble.channel {
   background: var(--bubble-channel-bg);
   color: var(--bubble-channel-text);
-  border-radius: var(--bubble-radius);
+  border-radius: 0;
   max-width: 540px;
   align-self: center;
 }
 
-/* Forwarded label */
 .bubble-forward {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
   margin-bottom: 4px;
   padding-left: 8px;
-  border-left: 3px solid var(--accent);
+  border-left: 2px solid var(--accent);
 }
 
-/* Reply quote strip */
 .bubble-reply {
-  border-left: 3px solid var(--accent);
+  border-left: 2px solid var(--accent);
   padding: 3px 8px;
   margin-bottom: 4px;
-  border-radius: 2px;
-  background: rgba(0,0,0,0.05);
-  font-size: 12px;
+  background: rgba(0,255,65,0.04);
+  font-size: 11px;
   color: var(--text-secondary);
 }
-[data-theme="dark"] .bubble-reply { background: rgba(255,255,255,0.05); }
 
-/* Image inside bubble */
 .bubble-img {
   display: block;
   max-width: 100%;
-  border-radius: 12px;
+  border-radius: 0;
   margin-bottom: 4px;
+  border: 1px solid var(--border);
 }
 
-/* Date separator */
+/* ── Date separator ── */
 .date-separator {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 12px 0 8px;
+  margin: 10px 0 6px;
   pointer-events: none;
 }
 .date-separator span {
-  background: rgba(0,0,0,0.25);
-  color: #fff;
-  font-size: 12px;
-  border-radius: 12px;
-  padding: 3px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
-[data-theme="dark"] .date-separator span { background: rgba(0,0,0,0.50); }
 
-/* ── Status dot ── */
+/* ── Status indicator ── */
 .status-dot {
   display: inline-block;
-  width: 9px; height: 9px;
-  border-radius: 50%;
+  width: 8px; height: 8px;
+  border-radius: 0;         /* square block cursor */
   flex-shrink: 0;
 }
-.status-dot.online    { background: var(--online); }
-.status-dot.away      { background: var(--away); }
-.status-dot.busy      { background: var(--busy); }
-.status-dot.dnd       { background: var(--busy); }
-.status-dot.na        { background: #9E9E9E; }
+.status-dot.online    { background: var(--online);  box-shadow: 0 0 4px var(--online); }
+.status-dot.away      { background: var(--away);    box-shadow: 0 0 4px var(--away); }
+.status-dot.busy      { background: var(--busy);    box-shadow: 0 0 4px var(--busy); }
+.status-dot.dnd       { background: var(--busy);    box-shadow: 0 0 4px var(--busy); }
+.status-dot.na        { background: #888; }
 .status-dot.offline   { background: var(--offline); }
-.status-dot.invisible { background: #555; }
+.status-dot.invisible { background: #333; }
 
-/* Unread badge — Telegram pill */
+/* ── Unread badge ── */
 .unread-badge {
   min-width: 20px;
-  height: 20px;
-  border-radius: 10px;
-  background: var(--row-unread-badge);
-  color: #fff;
-  font-size: 11px;
+  height: 18px;
+  border-radius: 0;
+  background: var(--accent);
+  color: #000;
+  font-size: 10px;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 5px;
+  padding: 0 4px;
   flex-shrink: 0;
+  font-family: inherit;
+  letter-spacing: 0.05em;
 }
 .unread-badge.muted {
   background: var(--row-muted-badge);
+  color: var(--text-muted);
 }
 
 /* ── Animations ── */
-@keyframes fadeSlideUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }
 @keyframes fadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+@keyframes scanIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
-@keyframes bubbleIn {
-  from { opacity: 0; transform: scale(0.92) translateY(6px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
-}
 
-.fade-in   { animation: fadeIn 0.15s ease; }
-.bubble-in-anim { animation: bubbleIn 0.18s cubic-bezier(.22,.68,0,1.2); }
+.fade-in { animation: fadeIn 0.12s ease; }
+.bubble-in-anim { animation: scanIn 0.12s linear; }
+
+/* Terminal cursor blink on compose */
+.terminal-cursor::after {
+  content: '█';
+  animation: blink 1s step-end infinite;
+  color: var(--accent);
+  margin-left: 1px;
+}
 
 /* ── Reduce Motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
-/* Avatar hover overlay */
-.avatar-wrap:hover .avatar-overlay { opacity: 1 !important; }
-
 /* ── Utility ── */
 .truncate {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Avatar as ASCII block */
+.avatar-wrap { position: relative; }
+.avatar-wrap:hover .avatar-overlay { opacity: 1 !important; }
+
+/* ── ASCII box-drawing helpers ── */
+.terminal-box {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.terminal-box-header {
+  border-bottom: 1px solid var(--border);
+  padding: 4px 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Section divider */
+hr.terminal-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
+/* Glow on focus elements */
+*:focus-visible {
+  outline: 1px solid var(--accent);
+  box-shadow: var(--glow);
 }
