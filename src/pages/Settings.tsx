@@ -182,11 +182,11 @@ export default function Settings() {
                 onClick={() => setMyStatus(st)}>
                 <span className={`status-dot ${st}`} style={{marginRight:6}}/>
                 {{
-                  online: 'Online',
-                  away: 'Away',
-                  na: 'N/A',
-                  dnd: 'Do Not Disturb',
-                  invisible: 'Invisible',
+                  online: 'В сети',
+                  away: 'Отошёл',
+                  na: 'Недоступен',
+                  dnd: 'Не беспокоить',
+                  invisible: 'Невидимка',
                 }[st]}
               </button>
             ))}
@@ -278,8 +278,8 @@ export default function Settings() {
           <Toggle label="Звуки уведомлений" value={notifySounds} onChange={setNotifySounds} />
         </Section>
 
-        {/* Messaging */}
-        <Section title="Messaging">
+        {/* Сообщения */}
+        <Section title="Сообщения">
           <Toggle label="История сообщений" value={historyEnabled} onChange={setHistoryEnabled} />
           <Label style={{ marginTop: 10 }}>Автоответчик</Label>
           <textarea
@@ -290,15 +290,15 @@ export default function Settings() {
           />
         </Section>
 
-        {/* Privacy */}
-        <Section title="Privacy">
-          <Label>Allow list (по одному ключу на строку)</Label>
+        {/* Приватность */}
+        <Section title="Приватность">
+          <Label>Белый список (по одному ключу на строку)</Label>
           <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={allowList} onChange={e => setAllowList(e.target.value)} />
-          <Label style={{ marginTop: 10 }}>Deny list</Label>
+          <Label style={{ marginTop: 10 }}>Чёрный список</Label>
           <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={denyList} onChange={e => setDenyList(e.target.value)} />
-          <Label style={{ marginTop: 10 }}>Invisible list</Label>
+          <Label style={{ marginTop: 10 }}>Невидимка для (ключи)</Label>
           <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={invisibleList} onChange={e => setInvisibleList(e.target.value)} />
-          <Label style={{ marginTop: 10 }}>Ignore list</Label>
+          <Label style={{ marginTop: 10 }}>Игнор-лист</Label>
           <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={ignoreList} onChange={e => setIgnoreList(e.target.value)} />
         </Section>
 
@@ -308,7 +308,7 @@ export default function Settings() {
 
         <Section title="О приложении">
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            <div><b>Soviet Messenger</b> v1.0.0</div>
+            <div><b>Soviet Messenger</b> v1.3.1</div>
             <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 12 }}>
               Разработано командой <b style={{ color: 'var(--accent)' }}>FSOCIETY</b> × <b style={{ color: 'var(--accent)' }}>LURKHUB</b>
             </div>

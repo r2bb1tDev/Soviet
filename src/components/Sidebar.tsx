@@ -70,11 +70,21 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const favorites = filtered.filter(c => c.is_favorite)
   const regular   = filtered.filter(c => !c.is_favorite)
 
+  // Групповые чаты
+  const groupChats = chats.filter(c => c.chat_type === 'group')
+
+  const openGroupChat = (chat: typeof chats[0]) => {
+    setActiveChannel(null)
+    setActiveChat(chat)
+  }
+
   const chatForContact = (pk: string) =>
     chats.find(ch => ch.chat_type === 'direct' && ch.peer_key === pk)
 
   const openChat = (contact: Contact) => {
     const chat = chatForContact(contact.public_key)
+    // Сбрасываем активный канал при переходе в чаты
+    setActiveChannel(null)
     setActiveChat(chat ?? {
       id: -1,
       chat_type: 'direct',
@@ -121,7 +131,25 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     <div style={s.root}>
       {/* ── Header ── */}
       <div style={s.header}>
-        <div style={s.headerAvatar} className="avatar-wrap">
+        <div
+          style={{ ...s.headerAvatar, cursor: 'pointer' }}
+          className="avatar-wrap"
+          title="Мой профиль"
+          onClick={() => identity && setProfileContact({
+            id: 0,
+            public_key: identity.public_key,
+            nickname: identity.nickname,
+            local_alias: null,
+            status: myStatus as any,
+            status_text: null,
+            last_seen: null,
+            notes: null,
+            is_blocked: false,
+            is_favorite: false,
+            added_at: 0,
+            verified: false,
+          })}
+        >
           {myAvatar
             ? <img src={myAvatar} style={s.avatarImg} />
             : <BearLogo size={36} />
@@ -129,7 +157,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
         </div>
         <div style={s.headerInfo}>
           <div style={s.myNick} className="truncate">{identity?.nickname ?? 'Soviet'}</div>
-          {customId && <div style={s.myId}>@{customId}</div>}
+          <div style={s.myId}>{customId ? `@${customId}` : <span style={{opacity:0.5, fontSize:11}}>нет ID</span>}</div>
         </div>
         <select
           value={myStatus}
@@ -137,17 +165,27 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           title="Статус"
           style={s.statusSelect}
         >
-          <option value="online">Online</option>
-          <option value="away">Away</option>
-          <option value="na">N/A</option>
-          <option value="dnd">Do Not Disturb</option>
-          <option value="invisible">Invisible</option>
+          <option value="online">В сети</option>
+          <option value="away">Отошёл</option>
+          <option value="na">Недоступен</option>
+          <option value="dnd">Не беспокоить</option>
+          <option value="invisible">Невидимка</option>
         </select>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <button className="btn-icon" title="Поиск" style={s.headerBtn}
-            onClick={() => setShowUserSearch(true)}>
+          {/* Кнопка добавить контакт */}
+          <button className="btn-icon" title="Добавить контакт" style={s.headerBtn}
+            onClick={() => onAddContact()}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="8.5" cy="7" r="4"/>
+              <line x1="20" y1="8" x2="20" y2="14"/>
+              <line x1="23" y1="11" x2="17" y2="11"/>
+            </svg>
+          </button>
+          <button className="btn-icon" title="Передача файлов" style={s.headerBtn}
+            onClick={() => setShowTransfers(true)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
             </svg>
           </button>
           <button className="btn-icon" title="Настройки" style={s.headerBtn}
@@ -158,22 +196,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
             </svg>
           </button>
         </div>
-      </div>
-
-      {/* ── ICQ Toolbar ── */}
-      <div style={s.toolbar}>
-        <button className="btn-secondary" style={s.toolBtn} onClick={() => onAddContact()}>
-          Add User
-        </button>
-        <button className="btn-secondary" style={s.toolBtn} onClick={() => setShowUserSearch(true)}>
-          Find/Search
-        </button>
-        <button className="btn-secondary" style={s.toolBtn} onClick={() => setShowTransfers(true)}>
-          Send File
-        </button>
-        <button className="btn-secondary" style={s.toolBtn} onClick={() => setPage('settings')}>
-          Preferences
-        </button>
       </div>
 
       {/* ── Contact request banner ── */}
@@ -258,6 +280,42 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
                     onContextMenu={e => handleContextMenu(e, c)}
                   />
                 ))}
+              </>
+            )}
+
+            {groupChats.length > 0 && (
+              <>
+                <SectionLabel>Группы</SectionLabel>
+                {groupChats.map(chat => {
+                  const unread = chat.unread_count ?? 0
+                  const name = chat.group_name ?? `Группа`
+                  return (
+                    <div
+                      key={chat.id}
+                      style={{
+                        ...row.wrap,
+                        background: activeChat?.id === chat.id ? 'var(--row-active-bg)' : 'transparent',
+                      }}
+                      onClick={() => openGroupChat(chat)}
+                      onMouseEnter={e => { if (activeChat?.id !== chat.id) e.currentTarget.style.background = 'var(--bg-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = activeChat?.id === chat.id ? 'var(--row-active-bg)' : 'transparent' }}
+                    >
+                      <div style={{ ...row.avatar, background: '#7B68EE', color: '#fff', fontSize: 16, fontWeight: 700 }}>
+                        👥
+                      </div>
+                      <div style={row.info}>
+                        <div style={row.top}>
+                          <span style={row.name} className="truncate">{name}</span>
+                          {chat.last_message_time && <span style={row.time}>{formatTime(chat.last_message_time)}</span>}
+                        </div>
+                        <div style={row.bottom}>
+                          <span style={row.sub} className="truncate">{chat.last_message ?? 'Нет сообщений'}</span>
+                          {unread > 0 && <span className="unread-badge">{unread > 99 ? '99+' : unread}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </>
             )}
 
@@ -683,46 +741,40 @@ const s: Record<string, React.CSSProperties> = {
     height: '100vh', overflow: 'hidden', flexShrink: 0,
   },
   header: {
-    display: 'flex', alignItems: 'center', gap: 10,
-    padding: '10px 12px',
+    display: 'flex', alignItems: 'center', gap: 8,
+    padding: '8px 10px',
     background: 'var(--header-bg)',
     borderBottom: '1px solid var(--divider)',
     flexShrink: 0,
+    minHeight: 56,
   },
   headerAvatar: {
-    width: 40, height: 40, borderRadius: '50%',
-    overflow: 'hidden', flexShrink: 0, cursor: 'pointer',
+    width: 38, height: 38, borderRadius: '50%',
+    overflow: 'hidden', flexShrink: 0,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'var(--accent)',
   },
-  avatarImg: { width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' },
-  headerInfo: { flex: 1, minWidth: 0 },
+  avatarImg: { width: 38, height: 38, borderRadius: '50%', objectFit: 'cover' },
+  headerInfo: { flex: 1, minWidth: 0, overflow: 'hidden' },
   myNick: {
-    fontSize: 15, fontWeight: 700,
+    fontSize: 14, fontWeight: 700,
     color: 'var(--header-text)',
-    maxWidth: '100%',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
-  myId: { fontSize: 12, color: 'var(--text-muted)', marginTop: 1 },
-  headerBtn: { width: 34, height: 34 },
+  myId: { fontSize: 11, color: 'var(--text-muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  headerBtn: { width: 30, height: 30, flexShrink: 0 },
   statusSelect: {
-    height: 32,
-    borderRadius: 10,
+    height: 28,
+    borderRadius: 8,
     border: '1px solid var(--border)',
     background: 'var(--bg-secondary)',
     color: 'var(--text-primary)',
-    fontSize: 12,
-    padding: '0 8px',
+    fontSize: 11,
+    padding: '0 4px',
     outline: 'none',
-  },
-  toolbar: {
-    display: 'flex',
-    gap: 8,
-    padding: '8px 12px',
-    borderBottom: '1px solid var(--divider)',
-    background: 'var(--bg-sidebar)',
     flexShrink: 0,
+    maxWidth: 86,
   },
-  toolBtn: { flex: 1, fontSize: 12, padding: '7px 8px' },
   requestBanner: {
     display: 'flex', alignItems: 'center', gap: 8,
     padding: '7px 14px', flexShrink: 0,

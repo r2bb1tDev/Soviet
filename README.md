@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/badge/скачать-v1.3.0-blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v1.3.1-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
@@ -184,6 +184,8 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 
 - [x] v1.0 — LAN-режим, E2E чаты, группы, Nostr каналы
 - [x] v1.1 — P2P mesh (libp2p), Nostr DM fallback, поиск пользователей, автообновление
+- [x] v1.3 — поиск по переписке, звук ICQ, офлайн store-and-forward, передача файлов
+- [x] v1.3.1 — исправления: Enter с первого нажатия, reaction picker, plaintext из БД, локализация настроек
 - [ ] v2.0 — NAT hole-punching (DCUtR), голосовые сообщения, шифрование БД
 
 ---

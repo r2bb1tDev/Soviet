@@ -1,0 +1,23 @@
+{
+  "version": "1.3.1",
+  "notes": "v1.3.1 — bugfixes: Enter отправляет с первого нажатия, reaction picker через portal, plaintext из БД, локализация настроек",
+  "pub_date": "2026-04-09T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://github.com/r2bb1tDev/Soviet/releases/download/v1.3.1/Soviet_1.3.1_x64-setup.exe",
+      "signature": ""
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/r2bb1tDev/Soviet/releases/download/v1.3.1/Soviet_1.3.1_aarch64.dmg",
+      "signature": ""
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/r2bb1tDev/Soviet/releases/download/v1.3.1/Soviet_1.3.1_x64.dmg",
+      "signature": ""
+    },
+    "linux-x86_64": {
+      "url": "https://github.com/r2bb1tDev/Soviet/releases/download/v1.3.1/Soviet_1.3.1_amd64.AppImage",
+      "signature": ""
+    }
+  }
+}

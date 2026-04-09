@@ -32,6 +32,7 @@ pub struct DbMessage {
     pub reply_to: Option<i64>,
     pub edited_at: Option<i64>,
     pub is_deleted: bool,
+    pub plaintext: Option<String>, // открытый текст для отображения (не нужно расшифровывать)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -53,6 +54,7 @@ pub struct DbChat {
     pub last_message: Option<String>,
     pub last_message_time: Option<i64>,
     pub unread_count: i64,
+    pub group_name: Option<String>,  // имя группы (только для group-чатов)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -513,8 +515,9 @@ pub fn get_or_create_direct_chat(conn: &Connection, peer_key: &str) -> anyhow::R
 
 pub fn get_chats(conn: &Connection) -> anyhow::Result<Vec<DbChat>> {
     let mut stmt = conn.prepare(
-        "SELECT id,chat_type,peer_key,group_id,created_at,last_message,last_message_time,unread_count
-         FROM chats ORDER BY COALESCE(last_message_time, created_at) DESC"
+        "SELECT c.id, c.chat_type, c.peer_key, c.group_id, c.created_at, c.last_message, c.last_message_time, c.unread_count,
+                (SELECT s.value FROM settings s WHERE s.key = 'group_name_' || c.group_id) as group_name
+         FROM chats c ORDER BY COALESCE(c.last_message_time, c.created_at) DESC"
     )?;
     let rows = stmt.query_map([], |r| {
         Ok(DbChat {
@@ -526,6 +529,7 @@ pub fn get_chats(conn: &Connection) -> anyhow::Result<Vec<DbChat>> {
             last_message: r.get(5)?,
             last_message_time: r.get(6)?,
             unread_count: r.get(7)?,
+            group_name: r.get(8).unwrap_or(None),
         })
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())
@@ -634,7 +638,7 @@ pub fn get_messages(conn: &Connection, chat_id: i64, limit: i64, before: Option<
     let rows = if let Some(before_ts) = before {
         let mut s = conn.prepare(
             "SELECT id,chat_id,sender_key,content,content_type,timestamp,status,reply_to,
-                    edited_at, COALESCE(is_deleted,0)
+                    edited_at, COALESCE(is_deleted,0), plaintext
              FROM messages WHERE chat_id=?1 AND timestamp<?2
              ORDER BY timestamp DESC LIMIT ?3"
         )?;
@@ -644,7 +648,7 @@ pub fn get_messages(conn: &Connection, chat_id: i64, limit: i64, before: Option<
     } else {
         let mut s = conn.prepare(
             "SELECT id,chat_id,sender_key,content,content_type,timestamp,status,reply_to,
-                    edited_at, COALESCE(is_deleted,0)
+                    edited_at, COALESCE(is_deleted,0), plaintext
              FROM messages WHERE chat_id=?1
              ORDER BY timestamp DESC LIMIT ?2"
         )?;
@@ -660,7 +664,7 @@ pub fn get_messages(conn: &Connection, chat_id: i64, limit: i64, before: Option<
 pub fn get_message_by_id(conn: &Connection, msg_id: i64) -> anyhow::Result<Option<DbMessage>> {
     let mut s = conn.prepare(
         "SELECT id,chat_id,sender_key,content,content_type,timestamp,status,reply_to,
-                edited_at, COALESCE(is_deleted,0)
+                edited_at, COALESCE(is_deleted,0), plaintext
          FROM messages WHERE id=?1"
     )?;
     match s.query_row(params![msg_id], row_to_msg) {
@@ -694,6 +698,7 @@ fn row_to_msg(r: &rusqlite::Row) -> rusqlite::Result<DbMessage> {
         reply_to: r.get(7)?,
         edited_at: r.get(8)?,
         is_deleted: r.get::<_, i64>(9)? != 0,
+        plaintext: r.get(10).unwrap_or(None),
     })
 }
 

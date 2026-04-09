@@ -87,7 +87,7 @@ export default function ChatWindow() {
   const contactForChat = activeChat ? contacts.find(c => c.public_key === activeChat.peer_key!) : null
   
   const groupName = isGroup
-    ? (activeChat as any)?.group_name ?? `Группа (${groupMembers.length})`
+    ? activeChat?.group_name ?? `Группа (${groupMembers.length})`
     : null
   
   // Имя для отображения: nickname пользователя (без local_alias)
@@ -234,13 +234,7 @@ export default function ChatWindow() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      const now = Date.now()
-      if (now - lastEnterRef.current < 400) {
-        lastEnterRef.current = 0
-        handleSend()
-      } else {
-        lastEnterRef.current = now
-      }
+      handleSend()
     }
   }
 
@@ -679,12 +673,20 @@ function MessageBubble({
           </svg>
         </button>
 
-        {/* Reaction picker */}
+        {/* Reaction picker — рендерим в portal чтобы не вылезало за окно */}
         {showReactionPicker && (
           <div style={{
             ...s.reactionPicker,
-            ...(isMine ? { right: 0 } : { left: 0 }),
-          }}>
+            position: 'fixed',
+            bottom: 'auto',
+            zIndex: 9000,
+            ...(isMine ? { right: 16 } : { left: 16 }),
+            top: '50%',
+            transform: 'translateY(-50%)',
+            maxWidth: 240,
+            maxHeight: '60vh',
+            overflowY: 'auto',
+          }} onClick={e => e.stopPropagation()}>
             {QUICK_REACTIONS.map(emoji => (
               <button key={emoji} style={s.emojiBtn} onClick={() => onReact(emoji)}>{emoji}</button>
             ))}
@@ -711,7 +713,6 @@ function MessageBubble({
             minWidth: 60,
           }}
           onContextMenu={onContextMenu}
-          onClick={onContextMenu}
         >
           {isEditing ? (
             <div>

@@ -36,6 +36,7 @@ export interface Message {
   reply_to: number | null
   edited_at: number | null
   is_deleted: boolean
+  plaintext: string | null  // open text from DB (own sent messages)
 }
 
 export interface Reaction {
@@ -55,6 +56,7 @@ export interface Chat {
   last_message: string | null
   last_message_time: number | null
   unread_count: number
+  group_name: string | null  // имя группы (только для group-чатов)
 }
 
 export interface Identity {
@@ -374,14 +376,16 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ messages })
     await invoke('mark_read', { chatId })
     // Расшифровываем (параллельно, чтобы не было задержек)
+    // Используем plaintext из БД если есть (для своих отправленных сообщений)
     const decryptedPairs = await Promise.all(messages.map(async (msg) => {
       if (msg.is_deleted) return [msg.id, '[Сообщение удалено]'] as const
       if (msg.content_type === 'system') return [msg.id, msg.content] as const
+      // Если есть plaintext в БД — используем его напрямую (не нужна расшифровка)
+      if (msg.plaintext) return [msg.id, msg.plaintext] as const
       try {
         const text = await invoke<string>('decrypt_message_text', { encryptedJson: msg.content })
         return [msg.id, text] as const
       } catch {
-        // Если вдруг в БД уже plaintext — показываем его, иначе понятную заглушку
         const maybePlain = (msg.content ?? '').trim()
         const looksLikeEncryptedJson = maybePlain.startsWith('{') && maybePlain.includes('"ciphertext"')
         return [msg.id, looksLikeEncryptedJson ? '[не удалось расшифровать]' : maybePlain] as const
@@ -413,6 +417,7 @@ export const useStore = create<AppStore>((set, get) => ({
     const decryptedPairs = await Promise.all(more.map(async (msg) => {
       if (msg.is_deleted) return [msg.id, '[Сообщение удалено]'] as const
       if (msg.content_type === 'system') return [msg.id, msg.content] as const
+      if (msg.plaintext) return [msg.id, msg.plaintext] as const
       try {
         const text = await invoke<string>('decrypt_message_text', { encryptedJson: msg.content })
         return [msg.id, text] as const
