@@ -432,3 +432,57 @@ hr.terminal-divider {
   outline: 1px solid var(--accent);
   box-shadow: var(--glow);
 }
+
+/* ── High Contrast Mode ── */
+[data-contrast="high"] {
+  --bg-primary:         #000000;
+  --bg-secondary:       #0A0A0A;
+  --bg-tertiary:        #0D0D0D;
+  --bg-hover:           #001A0A;
+  --bg-sidebar:         #000000;
+
+  --accent:             #00FF88;
+  --accent-hover:       #00CC66;
+  --accent-text:        #000000;
+
+  --text-primary:       #FFFFFF;
+  --text-secondary:     #00FF88;
+  --text-muted:         #44AA66;
+
+  --bubble-out-bg:      #001A0A;
+  --bubble-out-text:    #FFFFFF;
+  --bubble-in-bg:       #000000;
+  --bubble-in-text:     #FFFFFF;
+
+  --border:             rgba(0,255,136,0.4);
+  --border-light:       rgba(0,255,136,0.2);
+  --divider:            rgba(0,255,136,0.4);
+  --input-border:       rgba(0,255,136,0.5);
+  --input-focus:        #00FF88;
+  --scrollbar:          rgba(0,255,136,0.3);
+  --row-active-bg:      #001A0A;
+  --row-unread-badge:   #00FF88;
+
+  --online:             #00FF88;
+  --away:               #FFE000;
+  --busy:               #FF4444;
+  --offline:            #555555;
+}
+
+[data-contrast="high"] * {
+  text-shadow: none !important;
+}
+
+[data-contrast="high"] .btn-primary {
+  background: #00FF88 !important;
+  color: #000 !important;
+  font-weight: 700;
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

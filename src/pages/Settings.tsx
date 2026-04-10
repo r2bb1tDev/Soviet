@@ -34,6 +34,12 @@ export default function Settings() {
     const stored = localStorage.getItem('uiScale')
     return stored ? parseInt(stored) : 100
   })
+  const [highContrast, setHighContrast] = useState<boolean>(() =>
+    localStorage.getItem('highContrast') === 'true'
+  )
+  const [customRelay, setCustomRelay] = useState<string>(() =>
+    localStorage.getItem('customRelay') ?? ''
+  )
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const applyScale = (scale: number) => {
@@ -41,8 +47,15 @@ export default function Settings() {
     localStorage.setItem('uiScale', String(scale))
   }
 
+  const applyContrast = (enabled: boolean) => {
+    if (enabled) document.documentElement.setAttribute('data-contrast', 'high')
+    else document.documentElement.removeAttribute('data-contrast')
+    localStorage.setItem('highContrast', String(enabled))
+  }
+
   useEffect(() => {
     applyScale(uiScale)
+    applyContrast(highContrast)
   }, [])
 
   useEffect(() => {
@@ -277,6 +290,28 @@ export default function Settings() {
                     <span style={s.netLabel}>🔗 Relay серверы</span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>damus · nos.lol · nostr.band</span>
                   </div>
+                  <div style={{ marginTop: 8 }}>
+                    <Label>Дополнительный relay (wss://...)</Label>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                      <input
+                        style={{ ...s.input, flex: 1, fontSize: 12 }}
+                        placeholder="wss://relay.example.com"
+                        value={customRelay}
+                        onChange={e => setCustomRelay(e.target.value)}
+                      />
+                      <button
+                        className="btn-secondary"
+                        style={{ fontSize: 12, padding: '4px 10px', flexShrink: 0 }}
+                        onClick={() => {
+                          localStorage.setItem('customRelay', customRelay.trim())
+                          setSaved(true); setTimeout(() => setSaved(false), 1500)
+                        }}
+                      >
+                        Сохранить
+                      </button>
+                    </div>
+                    <p style={s.hint}>Используется при создании и поиске каналов</p>
+                  </div>
                 </div>
                 {p2pPeerId && (
                   <div style={{ marginTop: 12 }}>
@@ -303,6 +338,7 @@ export default function Settings() {
                   ))}
                 </div>
                 <Toggle label="Звуки уведомлений" value={notifySounds} onChange={setNotifySounds} />
+                <Toggle label="Высокий контраст" value={highContrast} onChange={v => { setHighContrast(v); applyContrast(v) }} />
                 <Label style={{ marginTop: 12 }}>Масштаб интерфейса</Label>
                 <div style={s.radioRow}>
                   {([100, 125, 150, 200] as const).map(scale => (
