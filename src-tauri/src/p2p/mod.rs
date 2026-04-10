@@ -3,6 +3,7 @@
 //! Слои обнаружения пиров:
 //!   1. mDNS         — автообнаружение в локальной сети (LAN/WiFi)
 //!   2. Kademlia DHT — глобальное обнаружение через IPFS bootstrap-узлы
+//!   3. DCUtR        — NAT hole-punching через relay-узлы
 //!
 //! Идентификация: Soviet public key передаётся через поле agent_version протокола Identify.
 //! Доставка сообщений: RequestResponse/CBOR (те же зашифрованные LanPacket, что и в LAN-режиме).
@@ -12,7 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use libp2p::{
-    identify, kad, mdns, ping, request_response,
+    dcutr,
+    identify, kad, mdns, ping, relay, request_response,
     request_response::{cbor, ProtocolSupport},
     swarm::{NetworkBehaviour, SwarmEvent},
     Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
@@ -32,6 +34,13 @@ const BOOTSTRAP_ADDRS: &[&str] = &[
     "/ip4/128.199.219.111/tcp/4001/p2p/QmSoLSafTMBsPKadTEgaXctDQVcqN88CNLHXMkTNwMKPnu",
     "/ip4/178.62.158.247/tcp/4001/p2p/QmSoLer265NRgSp2LA3dPaeykiS1J6DifTC88f5uVQKNAd",
     "/ip4/104.236.76.40/tcp/4001/p2p/QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs9t",
+];
+
+/// Relay-узлы, поддерживающие libp2p relay v2 (DCUtR hole-punching)
+const RELAY_ADDRS: &[&str] = &[
+    "/ip4/147.75.80.110/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+    "/ip4/147.75.195.153/tcp/4001/p2p/QmW9m57aiBDHAkKj9nmFyEn09nuXPHEjbmerfggmeMbqcE",
+    "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
 ];
 
 /// Префикс в agent_version для передачи Soviet public key через Identify
@@ -55,11 +64,13 @@ pub struct SovietResponse {
 
 #[derive(NetworkBehaviour)]
 struct SovietBehaviour {
-    kad:      kad::Behaviour<kad::store::MemoryStore>,
-    identify: identify::Behaviour,
-    ping:     ping::Behaviour,
-    mdns:     mdns::tokio::Behaviour,
-    rr:       cbor::Behaviour<SovietRequest, SovietResponse>,
+    kad:          kad::Behaviour<kad::store::MemoryStore>,
+    identify:     identify::Behaviour,
+    ping:         ping::Behaviour,
+    mdns:         mdns::tokio::Behaviour,
+    rr:           cbor::Behaviour<SovietRequest, SovietResponse>,
+    relay_client: relay::client::Behaviour,
+    dcutr:        dcutr::Behaviour,
 }
 
 // ─── Публичный API модуля ─────────────────────────────────────────────────────
@@ -73,15 +84,15 @@ pub enum P2pCmd {
 /// Информация об известном P2P-пире
 #[derive(Serialize, Debug, Clone)]
 pub struct P2pPeer {
-    pub peer_id:  String,
+    pub peer_id:   String,
     pub soviet_pk: Option<String>,
-    pub addrs:    Vec<String>,
+    pub addrs:     Vec<String>,
 }
 
 /// Дескриптор P2P-слоя, хранящийся в AppState
 pub struct P2pHandle {
     pub cmd_tx: mpsc::Sender<P2pCmd>,
-    peers:      Arc<Mutex<HashMap<String, P2pPeer>>>, // peer_id_str → P2pPeer
+    peers:      Arc<Mutex<HashMap<String, P2pPeer>>>,
 }
 
 impl P2pHandle {
@@ -161,6 +172,9 @@ pub fn start(
             // Запускаем bootstrap (находит ближайших соседей в DHT)
             swarm.behaviour_mut().kad.bootstrap().ok();
 
+            // Подключаемся к relay-узлам для DCUtR NAT hole-punching
+            connect_to_relays(&mut swarm);
+
             log::info!("P2P node started, soviet_pk={}", agent_version.trim_start_matches(AGENT_PREFIX));
             app.emit("p2p-started", soviet_pk.clone()).ok();
 
@@ -213,7 +227,13 @@ fn build_swarm(
             libp2p::yamux::Config::default,
         )
         .map_err(|e| anyhow::anyhow!("TCP transport error: {}", e))?
-        .with_behaviour(|key| {
+        // Relay client transport layer (поверх TCP, для circuit relay v2)
+        .with_relay_client(
+            libp2p::noise::Config::new,
+            libp2p::yamux::Config::default,
+        )
+        .map_err(|e| anyhow::anyhow!("Relay transport error: {}", e))?
+        .with_behaviour(|key, relay_client| {
             // Kademlia DHT (совместим с IPFS-сетью)
             let kad_store = kad::store::MemoryStore::new(local_peer_id);
             let mut kad_cfg = kad::Config::default();
@@ -257,7 +277,10 @@ fn build_swarm(
                     .with_request_timeout(Duration::from_secs(15)),
             );
 
-            Ok(SovietBehaviour { kad, identify, ping, mdns, rr })
+            // DCUtR — NAT hole-punching через relay-узлы
+            let dcutr = dcutr::Behaviour::new(local_peer_id);
+
+            Ok(SovietBehaviour { kad, identify, ping, mdns, rr, relay_client, dcutr })
         })
         .map_err(|e| anyhow::anyhow!("Behaviour error: {}", e))?
         .with_swarm_config(|c| {
@@ -273,7 +296,6 @@ fn build_swarm(
 fn add_bootstrap_peers(swarm: &mut libp2p::Swarm<SovietBehaviour>) {
     for addr_str in BOOTSTRAP_ADDRS {
         if let Ok(addr) = addr_str.parse::<Multiaddr>() {
-            // Извлекаем PeerId из последнего компонента /p2p/<PeerId>
             let pid_opt = addr.iter().find_map(|proto| {
                 if let libp2p::multiaddr::Protocol::P2p(pid) = proto {
                     Some(pid)
@@ -282,12 +304,36 @@ fn add_bootstrap_peers(swarm: &mut libp2p::Swarm<SovietBehaviour>) {
                 }
             });
             if let Some(peer_id) = pid_opt {
-                // Добавляем без /p2p/ суффикса — Kademlia сам создаст нужный адрес
                 let mut transport_addr = addr.clone();
-                transport_addr.pop(); // убираем /p2p/...
+                transport_addr.pop();
                 swarm.behaviour_mut().kad.add_address(&peer_id, transport_addr);
             }
         }
+    }
+}
+
+// ─── Relay-подключение для DCUtR ─────────────────────────────────────────────
+
+fn connect_to_relays(swarm: &mut libp2p::Swarm<SovietBehaviour>) {
+    for addr_str in RELAY_ADDRS {
+        if let Ok(addr) = addr_str.parse::<Multiaddr>() {
+            // Диалим relay-узел; после установки соединения зарезервируем слот
+            if let Err(e) = swarm.dial(addr.clone()) {
+                log::debug!("P2P: relay dial failed {}: {}", addr_str, e);
+            } else {
+                log::info!("P2P: dialing relay {}", addr_str);
+            }
+        }
+    }
+}
+
+/// После успешного подключения к relay-узлу резервируем circuit-слот
+fn reserve_relay_slot(swarm: &mut libp2p::Swarm<SovietBehaviour>, relay_addr: Multiaddr) {
+    // Слушаем на адресе вида /ip4/.../tcp/.../p2p/<relay>/p2p-circuit
+    let circuit_addr = relay_addr.with(libp2p::multiaddr::Protocol::P2pCircuit);
+    match swarm.listen_on(circuit_addr.clone()) {
+        Ok(_) => log::info!("P2P: DCUtR relay reservation requested: {}", circuit_addr),
+        Err(e) => log::debug!("P2P: relay listen failed {}: {}", circuit_addr, e),
     }
 }
 
@@ -309,15 +355,36 @@ fn handle_swarm_event(
 
         SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
             log::info!("P2P: connected to {}", peer_id);
-            let addr = endpoint.get_remote_address().to_string();
+            let addr = endpoint.get_remote_address().clone();
+
+            // Если это relay-узел — резервируем circuit-слот для DCUtR
+            let is_relay = RELAY_ADDRS.iter().any(|r| {
+                r.parse::<Multiaddr>().ok()
+                    .and_then(|ma| ma.iter().find_map(|p| {
+                        if let libp2p::multiaddr::Protocol::P2p(pid) = p { Some(pid) } else { None }
+                    }))
+                    .map(|pid| pid == peer_id)
+                    .unwrap_or(false)
+            });
+            if is_relay {
+                let relay_addr = {
+                    // Строим адрес вида /ip4/.../tcp/.../p2p/<relay_peer_id>
+                    let mut a = addr.clone();
+                    a.push(libp2p::multiaddr::Protocol::P2p(peer_id));
+                    a
+                };
+                reserve_relay_slot(swarm, relay_addr);
+            }
+
+            let addr_str = addr.to_string();
             let mut guard = peers.lock().unwrap();
             let peer = guard.entry(peer_id.to_string()).or_insert_with(|| P2pPeer {
                 peer_id: peer_id.to_string(),
                 soviet_pk: None,
                 addrs: vec![],
             });
-            if !peer.addrs.contains(&addr) {
-                peer.addrs.push(addr);
+            if !peer.addrs.contains(&addr_str) {
+                peer.addrs.push(addr_str);
             }
         }
 
@@ -344,13 +411,11 @@ fn handle_swarm_event(
         SwarmEvent::Behaviour(SovietBehaviourEvent::Identify(
             identify::Event::Received { peer_id, info },
         )) => {
-            // Извлекаем Soviet PK из agent_version: "soviet/1.0/BASE58KEY"
             let soviet_pk_opt = info.agent_version
                 .strip_prefix(AGENT_PREFIX)
                 .filter(|s| !s.is_empty() && s.len() > 10)
                 .map(|s| s.to_string());
 
-            // Добавляем адреса пира в Kademlia для маршрутизации
             for addr in &info.listen_addrs {
                 swarm.behaviour_mut().kad.add_address(&peer_id, addr.clone());
             }
@@ -423,13 +488,46 @@ fn handle_swarm_event(
             log::debug!("P2P: Kademlia routing updated, added {}", peer);
         }
 
+        // ── Relay client: резервирование circuit-слота ────────────────────────
+        SwarmEvent::Behaviour(SovietBehaviourEvent::RelayClient(
+            relay::client::Event::ReservationReqAccepted { relay_peer_id, .. },
+        )) => {
+            log::info!("P2P: DCUtR relay slot reserved via {}", relay_peer_id);
+            app.emit("p2p-relay-reserved", relay_peer_id.to_string()).ok();
+        }
+
+        SwarmEvent::Behaviour(SovietBehaviourEvent::RelayClient(
+            relay::client::Event::OutboundCircuitEstablished { relay_peer_id, .. },
+        )) => {
+            log::info!("P2P: outbound circuit via relay {}", relay_peer_id);
+        }
+
+        SwarmEvent::Behaviour(SovietBehaviourEvent::RelayClient(e)) => {
+            log::debug!("P2P: relay client event: {:?}", e);
+        }
+
+        // ── DCUtR: NAT hole-punching ──────────────────────────────────────────
+        SwarmEvent::Behaviour(SovietBehaviourEvent::Dcutr(dcutr::Event {
+            remote_peer_id,
+            result,
+        })) => {
+            match result {
+                Ok(_) => {
+                    log::info!("P2P: DCUtR hole-punch succeeded, direct link to {}", remote_peer_id);
+                    app.emit("p2p-dcutr-success", remote_peer_id.to_string()).ok();
+                }
+                Err(e) => {
+                    log::debug!("P2P: DCUtR hole-punch failed for {}: {}", remote_peer_id, e);
+                }
+            }
+        }
+
         // ── RequestResponse: входящие / исходящие сообщения ──────────────────
         SwarmEvent::Behaviour(SovietBehaviourEvent::Rr(
             request_response::Event::Message { peer, message },
         )) => {
             match message {
                 request_response::Message::Request { request, channel, .. } => {
-                    // Входящее сообщение — декодируем LanPacket и пробрасываем в общий обработчик
                     match serde_json::from_slice::<LanPacket>(&request.payload) {
                         Ok(packet) => {
                             let sender_pk = {
@@ -443,14 +541,12 @@ fn handle_swarm_event(
                         }
                         Err(e) => log::warn!("P2P: invalid payload from {}: {}", peer, e),
                     }
-                    // Подтверждаем получение
                     swarm.behaviour_mut().rr.send_response(
                         channel,
                         SovietResponse { ok: true },
                     ).ok();
                 }
                 request_response::Message::Response { .. } => {
-                    // Исходящее сообщение доставлено
                     log::debug!("P2P: delivery confirmed by {}", peer);
                 }
             }

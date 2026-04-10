@@ -63,6 +63,7 @@ libp2p = { version = "0.53", features = [
     "tcp", "quic", "noise", "yamux",
     "mdns", "kad", "identify", "ping",
     "request-response", "cbor", "ed25519",
+    "relay", "dcutr",
 ] }
 
 # Nostr protocol
