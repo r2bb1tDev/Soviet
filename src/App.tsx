@@ -104,7 +104,25 @@ export default function App() {
       if (t === 'light') document.documentElement.setAttribute('data-theme', 'light')
     }).catch(() => {})
 
+    // Восстанавливаем масштаб и высокий контраст из localStorage
+    const scale = localStorage.getItem('uiScale')
+    if (scale) document.documentElement.style.zoom = `${scale}%`
+    if (localStorage.getItem('highContrast') === 'true')
+      document.documentElement.setAttribute('data-contrast', 'high')
+
     return () => mq.removeEventListener('change', e => applyOS(e.matches))
+  }, [])
+
+  // Ctrl+F / Cmd+F → фокус поиска в сайдбаре
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent('soviet:focus-search'))
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
   }, [])
 
   // Экспортируем функции для вызова из трея через window.__tray*

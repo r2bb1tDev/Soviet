@@ -44,6 +44,17 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 
   // Поиск по истории сообщений с дебаунсом 300 мс
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Ctrl+F — глобальный фокус поиска
+  useEffect(() => {
+    const handler = () => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    }
+    window.addEventListener('soviet:focus-search', handler)
+    return () => window.removeEventListener('soviet:focus-search', handler)
+  }, [])
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current)
     if (sidebarSearch.trim().length < 2) { clearSearch(); return }
@@ -195,6 +206,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
           <input
+            ref={searchInputRef}
             style={s.search}
             placeholder="Поиск"
             value={tab === 'chats' ? sidebarSearch : channelSearch}
