@@ -55,6 +55,13 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     window.addEventListener('soviet:focus-search', handler)
     return () => window.removeEventListener('soviet:focus-search', handler)
   }, [])
+
+  // Ctrl+N — открыть поиск нового контакта
+  useEffect(() => {
+    const handler = () => setShowUserSearch(true)
+    window.addEventListener('soviet:new-chat', handler)
+    return () => window.removeEventListener('soviet:new-chat', handler)
+  }, [])
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current)
     if (sidebarSearch.trim().length < 2) { clearSearch(); return }

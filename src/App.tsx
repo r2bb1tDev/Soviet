@@ -92,12 +92,16 @@ export default function App() {
     return () => mq.removeEventListener('change', e => applyOS(e.matches))
   }, [])
 
-  // Ctrl+F / Cmd+F → фокус поиска в сайдбаре
+  // Горячие клавиши: Ctrl+F → поиск, Ctrl+N → новый чат
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault()
         window.dispatchEvent(new CustomEvent('soviet:focus-search'))
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent('soviet:new-chat'))
       }
     }
     window.addEventListener('keydown', handler)
