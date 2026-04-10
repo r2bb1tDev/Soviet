@@ -24,6 +24,8 @@ export default function Settings() {
   const [ignoreList, setIgnoreList] = useState('')
   const [saved, setSaved] = useState(false)
   const [appVersion, setAppVersion] = useState('...')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
   const [copiedPub, setCopiedPub] = useState(false)
   const [copiedPriv, setCopiedPriv] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(myAvatar)
@@ -140,8 +142,9 @@ export default function Settings() {
       </div>
 
       <div style={s.body}>
-        {/* Профиль */}
-        <Section title="Профиль">
+
+        {/* ── Профиль (упрощённый) ── */}
+        <Section title="Мой профиль">
           {/* Аватар */}
           <div style={s.avatarSection}>
             <div style={s.avatarWrap} onClick={handleAvatarClick} title="Нажмите для смены фото">
@@ -161,58 +164,12 @@ export default function Settings() {
               </button>
             )}
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: 'none' }}
-            onChange={handleAvatarChange}
-          />
+          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
 
-          <button className="btn-secondary" style={s.qrBtn} onClick={() => setShowShareCard(true)}>
-            📲 Мой QR-код / Поделиться
-          </button>
+          <Label>Отображаемое имя</Label>
+          <input style={s.input} value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Ваше имя" />
 
-          <Label>Никнейм</Label>
-          <input style={s.input} value={nickname} onChange={e => setNickname(e.target.value)} />
-
-          <Label>Статус</Label>
-          <div style={s.statusRow}>
-            {(['online','away','na','dnd','invisible'] as const).map(st => (
-              <button key={st}
-                className={myStatus === st ? 'btn-primary' : 'btn-secondary'}
-                style={s.statusBtn}
-                onClick={() => setMyStatus(st)}>
-                <span className={`status-dot ${st}`} style={{marginRight:6}}/>
-                {{
-                  online: 'В сети',
-                  away: 'Отошёл',
-                  na: 'Недоступен',
-                  dnd: 'Не беспокоить',
-                  invisible: 'Невидимка',
-                }[st]}
-              </button>
-            ))}
-          </div>
-
-          <Label>Текст статуса</Label>
-          <input style={s.input} value={statusText}
-            placeholder="Например: Работаю над проектом"
-            onChange={e => setStatusText(e.target.value)} />
-
-          <Label style={{ marginTop: 12 }}>Ваш ID</Label>
-          <input style={s.input} value={customId}
-            placeholder="3–10 симв., a-z 0-9 _"
-            maxLength={10}
-            onChange={e => handleCustomIdChange(e.target.value)} />
-          {customIdError && (
-            <div style={{ fontSize: 11, color: 'var(--error,#e53e3e)', marginTop: 2 }}>{customIdError}</div>
-          )}
-        </Section>
-
-        {/* Ключи */}
-        <Section title="Ваши ключи">
-          <Label>Публичный ключ (ваш «номер»)</Label>
+          <Label style={{ marginTop: 10 }}>Публичный ключ (ваш «номер»)</Label>
           <div style={s.keyRow}>
             <span style={s.keyText}>{identity?.public_key}</span>
             <button className="btn-icon" onClick={copyPub} title="Копировать">
@@ -220,94 +177,151 @@ export default function Settings() {
             </button>
           </div>
 
-          <Label style={{marginTop:12}}>Приватный ключ (резервная копия)</Label>
-          <div style={s.keyRow}>
-            <span style={{...s.keyText, filter:'blur(4px)', userSelect:'none'}}>{privKey}</span>
-            <button className="btn-icon" onClick={copyKey} title="Копировать">
-              {copiedPriv ? '✓' : '📋'}
-            </button>
-          </div>
-          <p style={s.hint}>⚠️ Никому не передавайте приватный ключ!</p>
-        </Section>
-
-        {/* Сеть */}
-        <Section title="Сеть">
-          <Toggle label="LAN-режим (без интернета)" value={lanEnabled} onChange={setLanEnabled} />
-          <p style={s.hint}>Автообнаружение пользователей в локальной сети через mDNS</p>
-
-          <div style={{ marginTop: 12 }}>
-            <Label>Интернет (P2P mesh)</Label>
-            <div style={s.netRow}>
-              <span style={s.netLabel}>🌐 libp2p DHT</span>
-              <span style={{ ...s.netBadge, background: p2pPeers.length > 0 ? 'var(--accent)' : 'var(--bg-tertiary)', color: p2pPeers.length > 0 ? 'white' : 'var(--text-muted)' }}>
-                {p2pPeers.length > 0 ? `${p2pPeers.length} пиров` : 'поиск...'}
-              </span>
-            </div>
-            <div style={s.netRow}>
-              <span style={s.netLabel}>📡 Nostr relay</span>
-              <span style={{ ...s.netBadge, background: 'var(--accent)', color: 'white' }}>активен</span>
-            </div>
-            <div style={s.netRow}>
-              <span style={s.netLabel}>🔗 Relay серверы</span>
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>damus · nos.lol · nostr.band</span>
-            </div>
-          </div>
-
-          {p2pPeerId && (
-            <div style={{ marginTop: 12 }}>
-              <Label>Ваш P2P ID</Label>
-              <div style={s.keyRow}>
-                <span style={s.keyText}>{p2pPeerId}</span>
-                <button className="btn-icon" onClick={() => navigator.clipboard.writeText(p2pPeerId)} title="Копировать">📋</button>
-              </div>
-              <p style={s.hint}>Поделитесь этим ID для прямого P2P-соединения</p>
-            </div>
-          )}
-        </Section>
-
-        {/* Интерфейс */}
-        <Section title="Интерфейс">
-          <Label>Тема</Label>
-          <div style={s.radioRow}>
-            {(['system','light','dark'] as const).map(t => (
-              <button key={t}
-                className={theme === t ? 'btn-primary' : 'btn-secondary'}
-                style={s.radioBtn}
-                onClick={() => { setTheme(t); applyTheme(t) }}>
-                {{ system:'Авто', light:'Светлая', dark:'Тёмная' }[t]}
-              </button>
-            ))}
-          </div>
-          <Toggle label="Звуки уведомлений" value={notifySounds} onChange={setNotifySounds} />
-        </Section>
-
-        {/* Сообщения */}
-        <Section title="Сообщения">
-          <Toggle label="История сообщений" value={historyEnabled} onChange={setHistoryEnabled} />
-          <Label style={{ marginTop: 10 }}>Автоответчик</Label>
-          <textarea
-            style={{ ...s.input, height: 70, resize: 'none' }}
-            placeholder="Текст автоответа (если вы Away / DND)"
-            value={autoResponse}
-            onChange={e => setAutoResponse(e.target.value)}
-          />
-        </Section>
-
-        {/* Приватность */}
-        <Section title="Приватность">
-          <Label>Белый список (по одному ключу на строку)</Label>
-          <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={allowList} onChange={e => setAllowList(e.target.value)} />
-          <Label style={{ marginTop: 10 }}>Чёрный список</Label>
-          <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={denyList} onChange={e => setDenyList(e.target.value)} />
-          <Label style={{ marginTop: 10 }}>Невидимка для (ключи)</Label>
-          <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={invisibleList} onChange={e => setInvisibleList(e.target.value)} />
-          <Label style={{ marginTop: 10 }}>Игнор-лист</Label>
-          <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={ignoreList} onChange={e => setIgnoreList(e.target.value)} />
+          <button className="btn-secondary" style={{ ...s.qrBtn, marginTop: 12 }} onClick={() => setShowShareCard(true)}>
+            📲 Мой QR-код / Поделиться
+          </button>
         </Section>
 
         <button className="btn-primary" style={s.saveBtn} onClick={save}>
           {saved ? '✓ Сохранено' : 'Сохранить'}
         </button>
+
+        {/* ── Расширенные настройки (свёрнуты) ── */}
+        <div style={{ marginTop: 8 }}>
+          <button
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+              padding: '10px 14px', cursor: 'pointer', color: 'var(--text-secondary)',
+              fontSize: 13, fontFamily: 'inherit',
+            }}
+            onClick={() => setShowAdvanced(v => !v)}
+          >
+            <span>⚙ Расширенные настройки</span>
+            <span>{showAdvanced ? '▲' : '▼'}</span>
+          </button>
+
+          {showAdvanced && (
+            <>
+              {/* Статус */}
+              <Section title="Статус">
+                <div style={s.statusRow}>
+                  {(['online','away','na','dnd','invisible'] as const).map(st => (
+                    <button key={st}
+                      className={myStatus === st ? 'btn-primary' : 'btn-secondary'}
+                      style={s.statusBtn}
+                      onClick={() => setMyStatus(st)}>
+                      <span className={`status-dot ${st}`} style={{marginRight:6}}/>
+                      {{ online:'В сети', away:'Отошёл', na:'Недоступен', dnd:'Не беспокоить', invisible:'Невидимка' }[st]}
+                    </button>
+                  ))}
+                </div>
+                <Label style={{ marginTop: 10 }}>Текст статуса</Label>
+                <input style={s.input} value={statusText}
+                  placeholder="Например: Работаю над проектом"
+                  onChange={e => setStatusText(e.target.value)} />
+              </Section>
+
+              {/* Ваш ID */}
+              <Section title="Ваш короткий ID">
+                <input style={s.input} value={customId}
+                  placeholder="3–10 симв., a-z 0-9 _"
+                  maxLength={10}
+                  onChange={e => handleCustomIdChange(e.target.value)} />
+                {customIdError && (
+                  <div style={{ fontSize: 11, color: 'var(--error,#e53e3e)', marginTop: 2 }}>{customIdError}</div>
+                )}
+              </Section>
+
+              {/* Приватный ключ */}
+              <Section title="Резервная копия ключа">
+                <div style={s.keyRow}>
+                  <span style={{...s.keyText, filter:'blur(4px)', userSelect:'none'}}>{privKey}</span>
+                  <button className="btn-icon" onClick={copyKey} title="Копировать">
+                    {copiedPriv ? '✓' : '📋'}
+                  </button>
+                </div>
+                <p style={s.hint}>⚠️ Никому не передавайте приватный ключ!</p>
+              </Section>
+
+              {/* Сеть */}
+              <Section title="Сеть">
+                <Toggle label="LAN-режим (без интернета)" value={lanEnabled} onChange={setLanEnabled} />
+                <p style={s.hint}>Автообнаружение пользователей в локальной сети через mDNS</p>
+                <div style={{ marginTop: 12 }}>
+                  <Label>Интернет (P2P mesh + Nostr)</Label>
+                  <div style={s.netRow}>
+                    <span style={s.netLabel}>🌐 libp2p DHT</span>
+                    <span style={{ ...s.netBadge, background: p2pPeers.length > 0 ? 'var(--accent)' : 'var(--bg-tertiary)', color: p2pPeers.length > 0 ? 'white' : 'var(--text-muted)' }}>
+                      {p2pPeers.length > 0 ? `${p2pPeers.length} пиров` : 'поиск...'}
+                    </span>
+                  </div>
+                  <div style={s.netRow}>
+                    <span style={s.netLabel}>📡 Nostr relay</span>
+                    <span style={{ ...s.netBadge, background: 'var(--accent)', color: 'white' }}>активен</span>
+                  </div>
+                  <div style={s.netRow}>
+                    <span style={s.netLabel}>🔗 Relay серверы</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>damus · nos.lol · nostr.band</span>
+                  </div>
+                </div>
+                {p2pPeerId && (
+                  <div style={{ marginTop: 12 }}>
+                    <Label>Ваш P2P ID</Label>
+                    <div style={s.keyRow}>
+                      <span style={s.keyText}>{p2pPeerId}</span>
+                      <button className="btn-icon" onClick={() => navigator.clipboard.writeText(p2pPeerId)} title="Копировать">📋</button>
+                    </div>
+                  </div>
+                )}
+              </Section>
+
+              {/* Интерфейс */}
+              <Section title="Интерфейс">
+                <Label>Тема</Label>
+                <div style={s.radioRow}>
+                  {(['system','light','dark'] as const).map(t => (
+                    <button key={t}
+                      className={theme === t ? 'btn-primary' : 'btn-secondary'}
+                      style={s.radioBtn}
+                      onClick={() => { setTheme(t); applyTheme(t) }}>
+                      {{ system:'Авто', light:'Светлая', dark:'Тёмная' }[t]}
+                    </button>
+                  ))}
+                </div>
+                <Toggle label="Звуки уведомлений" value={notifySounds} onChange={setNotifySounds} />
+              </Section>
+
+              {/* Сообщения */}
+              <Section title="Сообщения">
+                <Toggle label="История сообщений" value={historyEnabled} onChange={setHistoryEnabled} />
+                <Label style={{ marginTop: 10 }}>Автоответчик</Label>
+                <textarea
+                  style={{ ...s.input, height: 70, resize: 'none' }}
+                  placeholder="Текст автоответа (если вы Away / DND)"
+                  value={autoResponse}
+                  onChange={e => setAutoResponse(e.target.value)}
+                />
+              </Section>
+
+              {/* Приватность */}
+              <Section title="Приватность">
+                <Label>Белый список (по одному ключу на строку)</Label>
+                <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={allowList} onChange={e => setAllowList(e.target.value)} />
+                <Label style={{ marginTop: 10 }}>Чёрный список</Label>
+                <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={denyList} onChange={e => setDenyList(e.target.value)} />
+                <Label style={{ marginTop: 10 }}>Невидимка для (ключи)</Label>
+                <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={invisibleList} onChange={e => setInvisibleList(e.target.value)} />
+                <Label style={{ marginTop: 10 }}>Игнор-лист</Label>
+                <textarea style={{ ...s.input, height: 64, resize: 'none' }} value={ignoreList} onChange={e => setIgnoreList(e.target.value)} />
+              </Section>
+
+              <button className="btn-primary" style={s.saveBtn} onClick={save}>
+                {saved ? '✓ Сохранено' : 'Сохранить'}
+              </button>
+            </>
+          )}
+        </div>
 
         <Section title="О приложении">
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
@@ -322,24 +336,36 @@ export default function Settings() {
         </Section>
 
         <div style={{ padding: '8px 0 16px' }}>
-          <button
-            style={{
-              width: '100%', padding: '10px', borderRadius: 10,
-              background: 'rgba(229,62,62,0.08)', color: 'var(--error,#e53e3e)',
-              border: '1px solid rgba(229,62,62,0.25)', cursor: 'pointer',
-              fontSize: 14, fontWeight: 600,
-            }}
-            onClick={async () => {
-              if (!confirm('Выйти из аккаунта? Ваши данные останутся на устройстве.')) return
-              try {
-                await invoke('sign_out')
-                useStore.getState().setPage('onboarding')
-                useStore.setState({ identity: null })
-              } catch (e) { console.error(e) }
-            }}
-          >
-            🚪 Выйти из аккаунта
-          </button>
+          {!confirmSignOut ? (
+            <button
+              style={{
+                width: '100%', padding: '10px',
+                background: 'rgba(229,62,62,0.08)', color: 'var(--error,#e53e3e)',
+                border: '1px solid rgba(229,62,62,0.25)', cursor: 'pointer',
+                fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
+              }}
+              onClick={() => setConfirmSignOut(true)}
+            >
+              🚪 Выйти из аккаунта
+            </button>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, border: '1px solid var(--busy)', padding: '12px', background: 'rgba(229,62,62,0.05)' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Выйти из аккаунта? Ваши данные останутся на устройстве.</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn-secondary" style={{ flex: 1, fontSize: 13 }} onClick={() => setConfirmSignOut(false)}>Отмена</button>
+                <button style={{ flex: 1, fontSize: 13, padding: '8px', background: 'var(--busy)', color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                  onClick={async () => {
+                    try {
+                      await invoke('sign_out')
+                      useStore.getState().setPage('onboarding')
+                      useStore.setState({ identity: null })
+                    } catch (e) { console.error(e) }
+                  }}>
+                  Выйти
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

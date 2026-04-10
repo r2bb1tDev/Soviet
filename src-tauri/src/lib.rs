@@ -2115,9 +2115,25 @@ pub fn run() {
             get_p2p_peers,
             search_messages,
             sign_out,
+            set_tray_update_badge,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Soviet");
+}
+
+/// Обновляет тултип трея и добавляет пункт меню «Обновить» при наличии обновления
+#[tauri::command]
+fn set_tray_update_badge(app: AppHandle, version: String) {
+    let label = if version.is_empty() {
+        "⬆ Доступно обновление!".to_string()
+    } else {
+        format!("⬆ Доступно обновление v{}!", version)
+    };
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        tray.set_tooltip(Some(&label)).ok();
+    }
+    // Emit event so frontend can show update dialog if window is hidden
+    app.emit("update-available-tray", &version).ok();
 }
 
 fn show_main_window(app: &AppHandle) {

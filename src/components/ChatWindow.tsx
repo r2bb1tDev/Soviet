@@ -44,6 +44,7 @@ export default function ChatWindow() {
   const [replyTo, setReplyTo] = useState<{ id: number, text: string } | null>(null)
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
+  const [confirmDialog, setConfirmDialog] = useState<{ text: string; onConfirm: () => void } | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLInputElement>(null)
@@ -70,25 +71,28 @@ export default function ChatWindow() {
     m => m.public_key === identity?.public_key && m.is_admin
   )
 
-  const handleLeaveGroup = async () => {
+  const handleLeaveGroup = () => {
     if (!activeChat?.group_id) return
-    if (!confirm('Покинуть группу?')) return
-    try { await leaveGroup(activeChat.group_id) } catch {}
+    setConfirmDialog({ text: 'Покинуть группу?', onConfirm: async () => {
+      try { await leaveGroup(activeChat.group_id!) } catch {}
+    }})
   }
 
-  const handleDeleteGroup = async () => {
+  const handleDeleteGroup = () => {
     if (!activeChat?.group_id) return
-    if (!confirm('Удалить группу для всех участников?')) return
-    try { await deleteGroup(activeChat.group_id) } catch {}
+    setConfirmDialog({ text: 'Удалить группу для всех участников?', onConfirm: async () => {
+      try { await deleteGroup(activeChat.group_id!) } catch {}
+    }})
   }
 
-  const handleDeleteChat = async () => {
+  const handleDeleteChat = () => {
     if (!activeChat) return
-    if (!confirm('Удалить этот чат?')) return
-    try {
-      await deleteChat(activeChat.id!)
-      setActiveChat(null)
-    } catch {}
+    setConfirmDialog({ text: 'Удалить этот чат?', onConfirm: async () => {
+      try {
+        await deleteChat(activeChat.id!)
+        setActiveChat(null)
+      } catch {}
+    }})
   }
 
   // Получаем контакт для текущего чата (используем в хедерах и профиле)
@@ -331,11 +335,12 @@ export default function ChatWindow() {
     setEditingId(null)
   }
 
-  const handleDelete = async (msgId: number) => {
+  const handleDelete = (msgId: number) => {
     if (!activeChat) return
-    if (!confirm('Удалить это сообщение?')) return
     setContextMenu(null)
-    try { await deleteMessage(msgId, activeChat.id!) } catch {}
+    setConfirmDialog({ text: 'Удалить это сообщение?', onConfirm: async () => {
+      try { await deleteMessage(msgId, activeChat.id!) } catch {}
+    }})
   }
 
   const handleForward = (text: string) => {
@@ -690,6 +695,39 @@ export default function ChatWindow() {
 
       {showProfile && contactForChat && (
         <ContactProfile contact={contactForChat} onClose={() => setShowProfile(false)} />
+      )}
+
+      {/* ── Custom confirm dialog (replaces browser confirm()) ── */}
+      {confirmDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setConfirmDialog(null)}>
+          <div style={{
+            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+            borderRadius: 0, padding: '20px 24px', minWidth: 280, maxWidth: 360,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 14, color: 'var(--text-primary)', marginBottom: 16 }}>
+              {confirmDialog.text}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn-secondary" style={{ fontSize: 13 }}
+                onClick={() => setConfirmDialog(null)}>
+                Отмена
+              </button>
+              <button className="btn-primary" style={{ fontSize: 13, background: 'var(--busy)', borderColor: 'var(--busy)', color: '#fff' }}
+                onClick={async () => {
+                  const cb = confirmDialog.onConfirm
+                  setConfirmDialog(null)
+                  await cb()
+                }}>
+                Подтвердить
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

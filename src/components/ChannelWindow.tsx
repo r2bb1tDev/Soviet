@@ -709,6 +709,22 @@ export default function ChannelWindow() {
               <button className="btn-icon" title="Аудио" style={s.mediaBtn} onClick={() => audioRef.current?.click()}>🎵</button>
               <button className="btn-icon" title="GIF" style={{ ...s.mediaBtn, fontSize: 10, fontWeight: 700, fontFamily: 'monospace' }}
                 onClick={() => gifRef.current?.click()}>GIF</button>
+              <button className="btn-icon" title="Вставить блок кода" style={{ ...s.mediaBtn, fontSize: 10, fontWeight: 700, fontFamily: 'monospace' }}
+                onClick={() => {
+                  const ta = textareaRef.current
+                  if (!ta) return
+                  const start = ta.selectionStart
+                  const end = ta.selectionEnd
+                  const selected = text.slice(start, end)
+                  const snippet = selected ? `\`\`\`\n${selected}\n\`\`\`` : '```\n\n```'
+                  const newText = text.slice(0, start) + snippet + text.slice(end)
+                  setText(newText)
+                  setTimeout(() => {
+                    const pos = selected ? start + snippet.length : start + 4
+                    ta.setSelectionRange(pos, pos)
+                    ta.focus()
+                  }, 0)
+                }}>{'</>'}</button>
             </>
           )}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>

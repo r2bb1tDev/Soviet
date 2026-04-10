@@ -59,13 +59,22 @@ export default function App() {
   const checkForUpdates = async () => {
     try {
       const update = await checkUpdate()
-      // Tauri v2: check() возвращает объект Update если есть обновление, иначе null
       if (update) {
         setUpdateInfo(update)
         setUpdateAvailable(true)
+        // Уведомить через трей и системное уведомление
+        try {
+          await invoke('set_tray_update_badge', { version: update.version ?? '' })
+        } catch {}
+        try {
+          const { sendNotification } = await import('@tauri-apps/plugin-notification')
+          sendNotification({
+            title: '🐻 Soviet — доступно обновление',
+            body: `Версия ${update.version ?? ''} готова к установке. Нажмите для обновления.`,
+          })
+        } catch {}
       }
     } catch (e) {
-      // Тихо игнорируем (нет сети, подпись не прошла и т.д.)
       console.warn('[updater] check failed:', e)
     }
   }
@@ -114,6 +123,14 @@ export default function App() {
       if (!updateAvailable) checkForUpdates()
     }, 2 * 60 * 1000)
     return () => clearInterval(interval)
+  }, [updateAvailable])
+
+  // Показать диалог обновления при клике на трей (когда окно было скрыто)
+  useEffect(() => {
+    const unlisten = listen<string>('update-available-tray', () => {
+      if (!updateAvailable) checkForUpdates()
+    })
+    return () => { unlisten.then(f => f()) }
   }, [updateAvailable])
 
   // Загружаем данные при открытии главного окна
