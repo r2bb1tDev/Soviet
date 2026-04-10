@@ -243,4 +243,6 @@ invoke('nostr_send_comment', { channelId: string, parentEventId: string, content
 - [x] v1.2 — Edit, Delete, Reactions (Kind 7), Comments, Media (image/gif/audio/video)
 - [x] v2.1 — терминальный стиль постов, поиск каналов, описание в шапке, копирование ID, вставка кода (`</>`)
 - [x] v2.2 — авто-обновление реакций/комментариев каждые 10 сек, фикс пересылки, позиционирование emoji-picker
-- [ ] v2.3 — NIP-96 file hosting (крупные файлы), Polls (Kind 1068), Zaps
+- [x] v2.3 — Polls (опросы): создание, голосование, live-счётчик через реакции
+- [ ] v2.3 — NIP-96 file hosting (крупные файлы > 512 KB)
+- [ ] v2.3 — Zaps (Lightning-платежи)
