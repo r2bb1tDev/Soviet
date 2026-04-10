@@ -21,6 +21,17 @@ export default function App() {
   } = useStore()
   const get = useStore.getState
 
+  // Счётчик непрочитанных для заголовка окна
+  const totalUnread = useStore(s =>
+    s.chats.reduce((n, c) => n + (c.unread_count ?? 0), 0) +
+    s.channels.reduce((n, c) => n + (c.unread_count ?? 0), 0)
+  )
+  useEffect(() => {
+    document.title = totalUnread > 0
+      ? `(${totalUnread > 99 ? '99+' : totalUnread}) Soviet`
+      : 'Soviet'
+  }, [totalUnread])
+
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<any>(null)
 
