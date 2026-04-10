@@ -30,7 +30,20 @@ export default function Settings() {
   const [copiedPriv, setCopiedPriv] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(myAvatar)
   const [p2pPeerId, setP2pPeerId] = useState<string | null>(null)
+  const [uiScale, setUiScale] = useState<number>(() => {
+    const stored = localStorage.getItem('uiScale')
+    return stored ? parseInt(stored) : 100
+  })
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const applyScale = (scale: number) => {
+    document.documentElement.style.zoom = `${scale}%`
+    localStorage.setItem('uiScale', String(scale))
+  }
+
+  useEffect(() => {
+    applyScale(uiScale)
+  }, [])
 
   useEffect(() => {
     invoke<any>('get_settings').then(s => {
@@ -290,6 +303,19 @@ export default function Settings() {
                   ))}
                 </div>
                 <Toggle label="Звуки уведомлений" value={notifySounds} onChange={setNotifySounds} />
+                <Label style={{ marginTop: 12 }}>Масштаб интерфейса</Label>
+                <div style={s.radioRow}>
+                  {([100, 125, 150, 200] as const).map(scale => (
+                    <button
+                      key={scale}
+                      className={uiScale === scale ? 'btn-primary' : 'btn-secondary'}
+                      style={s.radioBtn}
+                      onClick={() => { setUiScale(scale); applyScale(scale) }}
+                    >
+                      {scale}%
+                    </button>
+                  ))}
+                </div>
               </Section>
 
               {/* Сообщения */}
