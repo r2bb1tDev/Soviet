@@ -3,7 +3,7 @@
 ## Принципы
 
 1. **Проверенные примитивы** — используем только стандартные, аудированные алгоритмы
-2. **Rust crates** — криптография через надёжные Rust-библиотеки (sodiumoxide, chacha20poly1305, ed25519-dalek, curve25519-dalek)
+2. **Rust crates** — криптография через надёжные Rust-библиотеки (ed25519-dalek, x25519-dalek, chacha20poly1305, hkdf)
 3. **Zero-knowledge архитектура** — сервер/relay никогда не видит содержимое
 4. **Perfect Forward Secrecy** — каждое сообщение использует новые эфемерные ключи
 5. **Подписание всех сообщений** — защита от подделки и MITM-атак
@@ -264,8 +264,9 @@ Nostr использует **Ed25519 для подписей**, но иначе:
 
 - `kind=40` — Create channel metadata
 - `kind=41` — Update channel metadata
-- `kind=42` — Channel message
+- `kind=42` — Channel message / edit / comment
 - `kind=5` — Delete event
+- `kind=7` — Reaction (NIP-25, с v1.2)
 
 **Шифрование контента:**
 
@@ -340,26 +341,26 @@ ChaCha20-Poly1305 включает аутентификационный тег (
 
 ```toml
 # Основная криптография
-sodiumoxide = "0.2"     # Обёртка над libsodium (Ed25519, X25519 + более старые алгоритмы)
-# или
-ed25519-dalek = "2.0"      # Ed25519 (modern Rust implementation)
-curve25519-dalek = "4.0"   # X25519 (Elliptic Curve)
+ed25519-dalek = "2"        # Ed25519 (modern Rust implementation)
+x25519-dalek = "2"         # X25519 (Elliptic Curve Diffie-Hellman)
 
 # AEAD
-chacha20poly1305 = "0.10" # ChaCha20-Poly1305
+chacha20poly1305 = "0.10"  # ChaCha20-Poly1305
 
 # HKDF
-hkdf = "0.12"            # HKDF-SHA256
+hkdf = "0.12"              # HKDF-SHA256
 
 # Хеширование
-sha2 = "0.10"            # SHA-256
+sha2 = "0.10"              # SHA-256
 
 # Кодирование
-bs58 = "0.5"             # Base58
-base64 = "0.21"          # Base64
+bs58 = "0.5"               # Base58
 
 # Хранилище ключей
-keyring = "2.0"          # Нативное хранилище ОС
+keyring = "2"              # Нативное хранилище ОС (DPAPI / Keychain / libsecret)
+
+# RNG
+rand = "0.8"               # Криптографически стойкий PRNG
 ```
 
 ---
@@ -397,7 +398,8 @@ src-tauri/src/crypto/
 
 - [x] **v1.0** — Ed25519, X25519, ChaCha20-Poly1305, ECDH, HKDF
 - [ ] **v1.5** — Double Ratchet (как в Signal) для еще лучшего PFS
-- [ ] **v2.0** — Encrypted SQLite (SQLCipher)
-- [ ] **v2.0** — Onion routing в mesh-сети
+- [x] **v2.0** — Шифрование чувствительных полей БД (ChaCha20-Poly1305 + OS keyring)
+- [ ] **v2.3** — Encrypted SQLite (SQLCipher) — полное шифрование файла БД
+- [ ] **v2.3** — Onion routing в mesh-сети
 - [ ] **v3.0** — Post-quantum криптография (CRYSTALS-Kyber)
 

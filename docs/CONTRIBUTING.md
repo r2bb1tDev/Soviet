@@ -9,32 +9,32 @@
 ### 1. Форкни репозиторий
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/soviet-messenger.git
-cd soviet-messenger
+git clone https://github.com/r2bb1tDev/Soviet.git
+cd Soviet
 ```
 
 ### 2. Настрой окружение
 
 **Требования:**
 - Rust 1.75+ (`rustup update`)
-- Node.js 20+ 
-- pnpm (`npm install -g pnpm`)
-- Tauri CLI (`cargo install tauri-cli`)
+- Node.js 18+
+- npm 9+
+- Tauri CLI — устанавливается через `npm install`
 
-**Windows:** дополнительно установи [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)  
-**Linux:** `sudo apt install libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev`
+**Windows:** Visual Studio Build Tools 2022+  
+**macOS:** `xcode-select --install`  
+**Linux:** `sudo apt install build-essential libssl-dev libgtk-3-dev libayatana-appindicator3-dev`
 
 ### 3. Установи зависимости
 
 ```bash
-cd client
-pnpm install
+npm install
 ```
 
 ### 4. Запусти в dev-режиме
 
 ```bash
-pnpm tauri dev
+npm run tauri dev
 ```
 
 ---
@@ -63,7 +63,7 @@ pnpm tauri dev
 3. Убедись, что тесты проходят:
    ```bash
    cargo test  # Rust тесты
-   pnpm test   # Frontend тесты
+   npm test    # Frontend тесты
    ```
 
 4. Создай Pull Request в `develop`
@@ -80,16 +80,16 @@ pnpm tauri dev
 - Документируй публичные функции (`///`)
 
 ### TypeScript/React
-- Prettier для форматирования (`pnpm format`)
-- ESLint (`pnpm lint`)
+- Prettier для форматирования (`npx prettier --write src/`)
+- ESLint (`npx eslint src/`)
 - Компоненты — функциональные, с TypeScript типами
 
 ---
 
 ## Баги и предложения
 
-- **Баг** → [GitHub Issues](https://github.com/YOUR_USERNAME/soviet-messenger/issues) с шаблоном Bug Report
-- **Идея** → [GitHub Discussions](https://github.com/YOUR_USERNAME/soviet-messenger/discussions)
+- **Баг** → [GitHub Issues](https://github.com/r2bb1tDev/Soviet/issues) с шаблоном Bug Report
+- **Идея** → [GitHub Discussions](https://github.com/r2bb1tDev/Soviet/discussions)
 - **Безопасность** → ТОЛЬКО на email, не в публичных Issues (см. SECURITY.md)
 
 ---

@@ -310,9 +310,9 @@ npx vitest
 
 ### 2. LAN Discovery
 - Тестирование на разных ОС
-- Оптимизация UDP broadcast
-- Добавление mDNS поддержки
+- Оптимизация UDP broadcast / mDNS (libp2p)
 - Обработка Network partitions
+- Store-and-Forward для оффлайн-участников
 
 ### 3. UI/UX
 - Дизайн иконок и логотипов

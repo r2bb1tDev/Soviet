@@ -423,8 +423,9 @@ const LAN_RECONNECT_BACKOFF_MAX: u64 = 60;  // секунды
 - [x] **v1.0** — UDP broadcast + TCP direct
 - [x] **v1.0** — Handshake protocol
 - [x] **v1.0** — Простые пакеты (hello, message, file, etc.)
-- [ ] **v1.5** — mDNS вместо broadcast (более стандартно)
-- [ ] **v1.5** — Оптимизация для больших сетей
-- [ ] **v2.0** — Mesh-сеть для > 100 узлов
-- [ ] **v2.0** — Store-and-Forward (сохранение в промежуточных узлах)
+- [x] **v2.0** — mDNS через libp2p (более стандартно, в дополнение к broadcast)
+- [x] **v2.0** — Mesh-сеть через libp2p Kademlia DHT (для > 100 узлов)
+- [x] **v2.0** — NAT traversal через DCUtR (Direct Connection Upgrade through Relay)
+- [ ] **v2.3** — Store-and-Forward (сохранение в промежуточных узлах)
+- [ ] **v3.0** — Tor/I2P транспорт для анонимного LAN-режима
 
