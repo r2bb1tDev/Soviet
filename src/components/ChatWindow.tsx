@@ -42,6 +42,8 @@ export default function ChatWindow() {
   const [recording, setRecording] = useState(false)
   const [recordingSecs, setRecordingSecs] = useState(0)
   const [replyTo, setReplyTo] = useState<{ id: number, text: string } | null>(null)
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLInputElement>(null)
@@ -142,6 +144,16 @@ export default function ChatWindow() {
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
+
+  // Clamp context menu inside viewport after it renders
+  useEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) return
+    const r = contextMenuRef.current.getBoundingClientRect()
+    setContextMenuPos({
+      x: Math.max(8, Math.min(contextMenu.x, window.innerWidth - r.width - 8)),
+      y: Math.max(8, Math.min(contextMenu.y, window.innerHeight - r.height - 8)),
+    })
+  }, [contextMenu])
 
   const autoResize = (el: HTMLTextAreaElement) => {
     el.style.height = 'auto'
@@ -302,6 +314,7 @@ export default function ChatWindow() {
   const handleRightClick = (e: React.MouseEvent, msg: Message, isMine: boolean, text: string) => {
     e.preventDefault()
     e.stopPropagation()
+    setContextMenuPos(null)
     setContextMenu({ msgId: msg.id, x: e.clientX, y: e.clientY, isMine, text })
     setReactionPickerMsgId(null)
   }
@@ -619,10 +632,12 @@ export default function ChatWindow() {
       {/* ── Context menu ── */}
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           style={{
             ...s.contextMenu,
-            left: Math.min(contextMenu.x, window.innerWidth - 190),
-            top: Math.min(contextMenu.y, window.innerHeight - 210),
+            left: contextMenuPos?.x ?? contextMenu.x,
+            top: contextMenuPos?.y ?? contextMenu.y,
+            visibility: contextMenuPos ? 'visible' : 'hidden',
           }}
           onClick={e => e.stopPropagation()}
         >

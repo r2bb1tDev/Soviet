@@ -69,15 +69,32 @@ function ContextMenu({
 
 // ─── Emoji Picker ─────────────────────────────────────────────────────────────
 
-function EmojiPicker({ onPick, onClose }: { onPick: (e: string) => void; onClose: () => void }) {
+function EmojiPicker({ onPick, onClose, anchorX, anchorY }: {
+  onPick: (e: string) => void
+  onClose: () => void
+  anchorX: number
+  anchorY: number
+}) {
   const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ x: anchorX, y: anchorY })
+
   useEffect(() => {
     const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose() }
     window.addEventListener('mousedown', close)
     return () => window.removeEventListener('mousedown', close)
   }, [onClose])
+
+  useEffect(() => {
+    if (!ref.current) return
+    const r = ref.current.getBoundingClientRect()
+    setPos({
+      x: Math.max(8, Math.min(anchorX, window.innerWidth - r.width - 8)),
+      y: Math.max(8, Math.min(anchorY, window.innerHeight - r.height - 8)),
+    })
+  }, [anchorX, anchorY])
+
   return (
-    <div ref={ref} style={ep.box}>
+    <div ref={ref} style={{ ...ep.box, position: 'fixed', left: pos.x, top: pos.y, zIndex: 9999 }}>
       {QUICK_EMOJIS.map(e => (
         <button key={e} style={ep.btn} onClick={() => { onPick(e); onClose() }}>{e}</button>
       ))}
@@ -443,7 +460,7 @@ function ForwardModal({ msg, onClose }: { msg: NostrMessage; onClose: () => void
           )}
           {contacts.map(c => (
             <button key={c.public_key} style={fw.contact} onClick={() => send(c.public_key)}>
-              <div style={fw.avatar}>{c.nickname[0].toUpperCase()}</div>
+              <div style={fw.avatar}>{(c.local_alias || c.nickname || '?')[0].toUpperCase()}</div>
               <span style={{ fontSize: 14 }}>{c.local_alias ?? c.nickname}</span>
             </button>
           ))}
@@ -492,7 +509,7 @@ export default function ChannelWindow() {
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null)
-  const [emojiPickerFor, setEmojiPickerFor] = useState<NostrMessage | null>(null)
+  const [emojiPickerFor, setEmojiPickerFor] = useState<{ msg: NostrMessage; x: number; y: number } | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [threadPost, setThreadPost] = useState<NostrMessage | null>(null)
   const [forwardMsg, setForwardMsg] = useState<NostrMessage | null>(null)
@@ -501,6 +518,16 @@ export default function ChannelWindow() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [topLevelMessages.length])
+
+  // Auto-refresh messages and reactions every 10 seconds while channel is open
+  useEffect(() => {
+    if (!activeChannel) return
+    const { loadChannelMessages } = useStore.getState()
+    const interval = setInterval(() => {
+      loadChannelMessages(activeChannel.channel_id)
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [activeChannel?.channel_id])
 
   if (!activeChannel) {
     return (
@@ -630,8 +657,10 @@ export default function ChannelWindow() {
                 onOpenThread={(m) => setThreadPost(m)}
               />
               {/* Quick emoji picker under bubble */}
-              {emojiPickerFor?.event_id === msg.event_id && (
+              {emojiPickerFor?.msg.event_id === msg.event_id && (
                 <EmojiPicker
+                  anchorX={emojiPickerFor.x}
+                  anchorY={emojiPickerFor.y}
                   onPick={async (emoji) => {
                     await useStore.getState().sendChannelReaction(
                       msg.event_id, activeChannel.channel_id, msg.sender_pubkey, emoji
@@ -722,7 +751,7 @@ export default function ChannelWindow() {
             if (!confirm('Удалить это сообщение?')) return
             await deleteChannelMessage(ctxMenu.msg.event_id)
           }}
-          onReact={() => setEmojiPickerFor(ctxMenu.msg)}
+          onReact={() => setEmojiPickerFor({ msg: ctxMenu.msg, x: ctxMenu.x, y: ctxMenu.y })}
           onReply={() => { setReplyTo(ctxMenu.msg); textareaRef.current?.focus() }}
           onForward={() => setForwardMsg(ctxMenu.msg)}
           onClose={() => setCtxMenu(null)}
