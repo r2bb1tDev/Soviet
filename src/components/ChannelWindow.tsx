@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { useStore, NostrMessage, ChannelReaction, ChannelMedia, parseChannelContent, buildChannelContent } from '../store'
+import { useStore, NostrMessage, ChannelReaction, ChannelMedia, PollData, parseChannelContent, buildChannelContent, buildPollContent } from '../store'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -162,6 +162,7 @@ function ReactionsBar({
   const grouped = useMemo(() => {
     const m: Record<string, { count: number; mine: string | null }> = {}
     for (const r of reactions) {
+      if (r.emoji.startsWith('vote:')) continue  // голоса опроса — не показываем как эмодзи
       if (!m[r.emoji]) m[r.emoji] = { count: 0, mine: null }
       m[r.emoji].count++
       if (r.reactor_pubkey === myPubkey) m[r.emoji].mine = r.reaction_event_id
@@ -195,6 +196,152 @@ function ReactionsBar({
   )
 }
 
+// ─── Poll Card ────────────────────────────────────────────────────────────────
+
+function PollCard({
+  poll, eventId, channelId, authorPubkey, reactions, myPubkey,
+}: {
+  poll: PollData
+  eventId: string
+  channelId: string
+  authorPubkey: string
+  reactions: ChannelReaction[]
+  myPubkey: string
+}) {
+  const { sendChannelReaction, removeChannelReaction } = useStore()
+
+  const myVoteReaction = reactions.find(r => r.reactor_pubkey === myPubkey && r.emoji.startsWith('vote:'))
+  const myVoteIndex = myVoteReaction ? parseInt(myVoteReaction.emoji.split(':')[1]) : -1
+
+  const voteCounts = poll.opts.map((_, i) => reactions.filter(r => r.emoji === `vote:${i}`).length)
+  const totalVotes = voteCounts.reduce((a, b) => a + b, 0)
+
+  const vote = async (i: number) => {
+    if (myVoteIndex === i) {
+      if (myVoteReaction?.reaction_event_id) await removeChannelReaction(myVoteReaction.reaction_event_id)
+    } else {
+      if (myVoteReaction?.reaction_event_id) await removeChannelReaction(myVoteReaction.reaction_event_id)
+      await sendChannelReaction(eventId, channelId, authorPubkey, `vote:${i}`)
+    }
+  }
+
+  const totalLabel = totalVotes === 1 ? 'голос' : totalVotes >= 2 && totalVotes <= 4 ? 'голоса' : 'голосов'
+
+  return (
+    <div style={pl.card}>
+      <div style={pl.question}>📊 {poll.q}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+        {poll.opts.map((opt, i) => {
+          const count = voteCounts[i]
+          const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0
+          const isMyVote = myVoteIndex === i
+          return (
+            <button
+              key={i}
+              style={{
+                ...pl.option,
+                borderColor: isMyVote ? 'var(--accent)' : 'var(--border)',
+                background: isMyVote ? 'rgba(46,204,113,0.08)' : 'var(--bg-primary)',
+              }}
+              onClick={() => vote(i)}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                  {isMyVote && <span style={{ color: 'var(--accent)', marginRight: 4 }}>✓</span>}
+                  {opt}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginLeft: 8, flexShrink: 0 }}>
+                  {count > 0 ? `${pct}%` : ''}
+                </span>
+              </div>
+              <div style={pl.bar}>
+                <div style={{ ...pl.fill, width: `${pct}%`, background: isMyVote ? 'var(--accent)' : 'var(--text-secondary,#6ECC8A)' }} />
+              </div>
+            </button>
+          )
+        })}
+      </div>
+      <div style={pl.total}>{totalVotes} {totalLabel}</div>
+    </div>
+  )
+}
+
+// ─── Poll Composer ────────────────────────────────────────────────────────────
+
+function PollComposer({ onCreate, onClose }: {
+  onCreate: (content: string) => void
+  onClose: () => void
+}) {
+  const [question, setQuestion] = useState('')
+  const [opts, setOpts] = useState(['', ''])
+
+  const setOpt = (i: number, v: string) => setOpts(opts.map((o, j) => j === i ? v : o))
+  const addOpt = () => { if (opts.length < 10) setOpts([...opts, '']) }
+  const removeOpt = (i: number) => { if (opts.length > 2) setOpts(opts.filter((_, j) => j !== i)) }
+
+  const filledOpts = opts.filter(o => o.trim())
+  const valid = question.trim().length > 0 && filledOpts.length >= 2
+
+  const create = () => {
+    if (!valid) return
+    onCreate(buildPollContent(question.trim(), filledOpts))
+    onClose()
+  }
+
+  return (
+    <div style={pc.overlay} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={pc.modal} className="fade-in">
+        <div style={pc.header}>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>📊 Создать опрос</span>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div style={pc.body}>
+          <div style={pc.label}>Вопрос</div>
+          <input
+            style={pc.input}
+            placeholder="Введите вопрос..."
+            value={question}
+            onChange={e => setQuestion(e.target.value)}
+            maxLength={200}
+            autoFocus
+            onKeyDown={e => { if (e.key === 'Enter') create() }}
+          />
+          <div style={{ ...pc.label, marginTop: 14 }}>Варианты ответа</div>
+          {opts.map((o, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, marginTop: 5 }}>
+              <input
+                style={{ ...pc.input, flex: 1 }}
+                placeholder={`Вариант ${i + 1}`}
+                value={o}
+                onChange={e => setOpt(i, e.target.value)}
+                maxLength={100}
+              />
+              {opts.length > 2 && (
+                <button className="btn-icon" style={{ fontSize: 14, color: 'var(--text-muted)' }} onClick={() => removeOpt(i)}>✕</button>
+              )}
+            </div>
+          ))}
+          {opts.length < 10 && (
+            <button
+              className="btn-icon"
+              style={{ fontSize: 12, color: 'var(--accent)', marginTop: 8, padding: '4px 0' }}
+              onClick={addOpt}
+            >
+              + Добавить вариант
+            </button>
+          )}
+        </div>
+        <div style={pc.footer}>
+          <button className="btn-icon" style={{ fontSize: 13 }} onClick={onClose}>Отмена</button>
+          <button className="btn-primary" style={{ fontSize: 13 }} disabled={!valid} onClick={create}>
+            Создать опрос
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
@@ -215,7 +362,7 @@ function MessageBubble({
   const [editText, setEditText] = useState('')
   const editing = editingId === msg.event_id
 
-  const { text, media } = parseChannelContent(msg.content)
+  const { text, media, poll } = parseChannelContent(msg.content)
   const commentCount = allMessages.filter(m => m.reply_to === msg.event_id).length
 
   useEffect(() => {
@@ -289,12 +436,23 @@ function MessageBubble({
             </div>
           ) : (
             <>
-              {media && <MediaRenderer media={media} />}
-              {text && <div style={{ fontSize: 14, lineHeight: 1.45 }}>{renderChannelText(text)}</div>}
+              {poll ? (
+                <PollCard
+                  poll={poll}
+                  eventId={msg.event_id}
+                  channelId={channelId}
+                  authorPubkey={msg.sender_pubkey}
+                  reactions={reactions}
+                  myPubkey={myPubkey}
+                />
+              ) : (
+                <>
+                  {media && <MediaRenderer media={media} />}
+                  {text && <div style={{ fontSize: 14, lineHeight: 1.45 }}>{renderChannelText(text)}</div>}
+                </>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', marginTop: 2 }}>
-                {msg.edited_at && (
-                  <span style={{ fontSize: 10, opacity: 0.7 }}>✏️</span>
-                )}
+                {msg.edited_at && <span style={{ fontSize: 10, opacity: 0.7 }}>✏️</span>}
                 <span style={{ fontSize: 10, opacity: 0.7 }}>{formatTime(msg.timestamp)}</span>
               </div>
             </>
@@ -514,6 +672,7 @@ export default function ChannelWindow() {
   const [threadPost, setThreadPost] = useState<NostrMessage | null>(null)
   const [forwardMsg, setForwardMsg] = useState<NostrMessage | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showPollComposer, setShowPollComposer] = useState(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -725,6 +884,8 @@ export default function ChannelWindow() {
                     ta.focus()
                   }, 0)
                 }}>{'</>'}</button>
+              <button className="btn-icon" title="Создать опрос" style={{ ...s.mediaBtn, fontSize: 16 }}
+                onClick={() => setShowPollComposer(true)}>📊</button>
             </>
           )}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -790,6 +951,33 @@ export default function ChannelWindow() {
       {/* Forward modal */}
       {forwardMsg && (
         <ForwardModal msg={forwardMsg} onClose={() => setForwardMsg(null)} />
+      )}
+
+      {/* Poll composer modal */}
+      {showPollComposer && (
+        <PollComposer
+          onClose={() => setShowPollComposer(false)}
+          onCreate={async (content) => {
+            setSending(true)
+            try {
+              await sendChannelMessage(activeChannel.channel_id, content)
+              addChannelMessage({
+                id: -Date.now(),
+                event_id: `local_${Date.now()}`,
+                channel_id: activeChannel.channel_id,
+                sender_pubkey: myPubkey,
+                sender_name: null,
+                content,
+                timestamp: Math.floor(Date.now() / 1000),
+                reply_to: null,
+                is_mine: true,
+                edited_at: null,
+                is_deleted: false,
+              })
+            } catch (e) { console.error(e) }
+            finally { setSending(false) }
+          }}
+        />
       )}
 
       {/* Channel settings modal */}
@@ -1059,3 +1247,24 @@ const ms: Record<string, React.CSSProperties> = {
   label: { fontSize: 12, color: 'var(--text-muted)' },
   input: { padding: '8px 12px', borderRadius: 10, fontSize: 14, border: '1px solid var(--input-border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', width: '100%', boxSizing: 'border-box' as const },
 }
+
+const pc: Record<string, React.CSSProperties> = {
+  overlay: { position: 'fixed', inset: 0, zIndex: 7000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  modal: { background: 'var(--bg-secondary)', borderRadius: 14, width: 360, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 },
+  body: { padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 0 },
+  footer: { display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 16px', borderTop: '1px solid var(--border)', flexShrink: 0 },
+  label: { fontSize: 11, color: 'var(--text-muted)', marginBottom: 5, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
+  input: { padding: '8px 12px', borderRadius: 8, fontSize: 13, border: '1px solid var(--input-border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', width: '100%', boxSizing: 'border-box' as const },
+}
+
+// ─── Poll Card styles ────────────────────────────────────────────────────────
+const pl: Record<string, React.CSSProperties> = {
+  card: { border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', background: 'rgba(0,0,0,0.15)', marginTop: 2 },
+  question: { fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 },
+  option: { display: 'block', width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid', cursor: 'pointer', textAlign: 'left' as const, transition: 'border-color 0.15s, background 0.15s', boxSizing: 'border-box' as const },
+  bar: { height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden', marginTop: 2 },
+  fill: { height: '100%', borderRadius: 2, transition: 'width 0.4s ease' },
+  total: { fontSize: 11, color: 'var(--text-muted)', marginTop: 8, textAlign: 'right' as const },
+}
+

@@ -140,21 +140,31 @@ export interface ChannelMedia {
   size?: number
 }
 
-/** Parse content field: returns { text, media } */
-export function parseChannelContent(content: string): { text: string; media: ChannelMedia | null } {
+export interface PollData {
+  q: string       // вопрос
+  opts: string[]  // варианты ответа (2–10)
+}
+
+/** Parse content field: returns { text, media, poll } */
+export function parseChannelContent(content: string): { text: string; media: ChannelMedia | null; poll: PollData | null } {
   try {
     const obj = JSON.parse(content)
     if (obj && obj.v === 1) {
-      return { text: obj.text ?? '', media: obj.media ?? null }
+      return { text: obj.text ?? '', media: obj.media ?? null, poll: obj.poll ?? null }
     }
   } catch { /* plain text */ }
-  return { text: content, media: null }
+  return { text: content, media: null, poll: null }
 }
 
 /** Build content field with optional media */
 export function buildChannelContent(text: string, media?: ChannelMedia | null): string {
   if (!media) return text
   return JSON.stringify({ v: 1, text, media })
+}
+
+/** Build content field for a poll */
+export function buildPollContent(question: string, opts: string[]): string {
+  return JSON.stringify({ v: 1, text: '', poll: { q: question, opts } })
 }
 
 export interface SearchResult {
