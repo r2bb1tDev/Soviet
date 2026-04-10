@@ -202,7 +202,7 @@ interface AppStore {
   setActiveChat: (chat: Chat | null) => void
   loadMessages: (chatId: number) => Promise<void>
   loadMoreMessages: (chatId: number, beforeTs: number) => Promise<void>
-  sendMessage: (recipientPk: string, text: string) => Promise<void>
+  sendMessage: (recipientPk: string, text: string, replyToId?: number | null) => Promise<void>
   decryptMessage: (msg: Message) => Promise<string>
   addReaction: (msgId: number, chatId: number, emoji: string) => Promise<void>
   removeReaction: (msgId: number, chatId: number, emoji: string) => Promise<void>
@@ -435,8 +435,8 @@ export const useStore = create<AppStore>((set, get) => ({
     }))
     set({ decryptedMessages: { ...st.decryptedMessages, ...Object.fromEntries(decryptedPairs) } })
   },
-  sendMessage: async (recipientPk, text) => {
-    await invoke('send_message', { recipientPk, text })
+  sendMessage: async (recipientPk, text, replyToId) => {
+    await invoke('send_message', { recipientPk, text, replyTo: replyToId ?? null })
     const { activeChat } = get()
     if (activeChat && activeChat.id > 0) {
       get().loadMessages(activeChat.id)

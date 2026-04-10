@@ -41,6 +41,7 @@ export default function ChatWindow() {
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<number | null>(null)
   const [recording, setRecording] = useState(false)
   const [recordingSecs, setRecordingSecs] = useState(0)
+  const [replyTo, setReplyTo] = useState<{ id: number, text: string } | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLInputElement>(null)
@@ -244,9 +245,10 @@ export default function ChatWindow() {
         await sendGroupMessage(activeChat.group_id, text.trim())
       } else {
         if (!activeChat.peer_key) return
-        await sendMessage(activeChat.peer_key, text.trim())
+        await sendMessage(activeChat.peer_key, text.trim(), replyTo?.id)
       }
-      
+      setReplyTo(null)
+
       // После отправки перезагружаем сообщения для синхронизации
       const chatId = activeChat?.id ?? -1
       if (chatId > 0) {
@@ -456,6 +458,9 @@ export default function ChatWindow() {
               const isMine = msg.sender_key === identity?.public_key
               const msgText = decryptedMessages[msg.id] ?? ''
               const msgReactions = reactions[msg.id] ?? []
+              const replyQuote = msg.reply_to
+                ? (decryptedMessages[msg.reply_to] ?? messages.find(m => m.id === msg.reply_to)?.plaintext ?? null)
+                : null
               return (
                 <MessageBubble
                   key={msg.id}
@@ -476,6 +481,7 @@ export default function ChatWindow() {
                     e.stopPropagation()
                     setReactionPickerMsgId(v => v === msg.id ? null : msg.id)
                   }}
+                  replyQuote={replyQuote}
                 />
               )
             })}
@@ -497,6 +503,24 @@ export default function ChatWindow() {
           {EMOJI_LIST.map(emoji => (
             <button key={emoji} style={s.emojiBtn} onClick={() => insertEmoji(emoji)}>{emoji}</button>
           ))}
+        </div>
+      )}
+
+      {/* ── Reply preview strip ── */}
+      {replyTo && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 12px', borderTop: '1px solid var(--border)',
+          background: 'rgba(0,255,65,0.04)',
+        }}>
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ fontSize: 11, color: 'var(--accent)', marginBottom: 2 }}>↩ Ответ на:</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {replyTo.text.slice(0, 120)}
+            </div>
+          </div>
+          <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px' }}
+            onClick={() => setReplyTo(null)}>×</button>
         </div>
       )}
 
@@ -610,6 +634,11 @@ export default function ChatWindow() {
           </div>
           <div style={s.ctxDivider} />
           <button style={s.ctxItem} onClick={() => {
+            setReplyTo({ id: contextMenu.msgId, text: contextMenu.text })
+            setContextMenu(null)
+            textareaRef.current?.focus()
+          }}>Ответить</button>
+          <button style={s.ctxItem} onClick={() => {
             navigator.clipboard.writeText(contextMenu.text)
             setContextMenu(null)
           }}>Копировать</button>
@@ -711,12 +740,14 @@ interface BubbleProps {
   onReact: (emoji: string) => void
   showReactionPicker: boolean
   onToggleReactionPicker: (e: React.MouseEvent) => void
+  replyQuote?: string | null
 }
 
 function MessageBubble({
   msg, isMine, text, msgReactions, myPk, isEditing, editText,
   onEditChange, onEditSubmit, onEditCancel,
   onContextMenu, onReact, showReactionPicker, onToggleReactionPicker,
+  replyQuote,
 }: BubbleProps) {
   const time = new Date(msg.timestamp * 1000).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
   const reactionGroups = groupReactions(msgReactions, myPk)
@@ -797,6 +828,18 @@ function MessageBubble({
           }}
           onContextMenu={onContextMenu}
         >
+          {replyQuote && !msg.is_deleted && (
+            <div style={{
+              borderLeft: '2px solid var(--accent)',
+              paddingLeft: 8, marginBottom: 6,
+              opacity: 0.7, fontSize: 11,
+              overflow: 'hidden', maxHeight: 40,
+              display: '-webkit-box', WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+            }}>
+              {replyQuote.slice(0, 100)}
+            </div>
+          )}
           {isEditing ? (
             <div>
               <textarea

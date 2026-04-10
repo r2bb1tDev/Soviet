@@ -455,6 +455,7 @@ fn mark_read(chat_id: i64, state: State<AppState>, app: AppHandle) -> Result<(),
 fn send_message(
     recipient_pk: String,
     text: String,
+    reply_to: Option<i64>,
     state: State<AppState>,
     app: AppHandle,
 ) -> Result<i64, String> {
@@ -489,7 +490,7 @@ fn send_message(
         content_type: "text".to_string(),
         timestamp: now,
         status: "sent".to_string(),
-        reply_to: None,
+        reply_to,
         edited_at: None,
         is_deleted: false,
         plaintext: Some(text.clone()),
