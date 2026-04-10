@@ -133,24 +133,8 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
       {/* ── Header ── */}
       <div style={s.header}>
         <div
-          style={{ ...s.headerAvatar, cursor: 'pointer' }}
+          style={s.headerAvatar}
           className="avatar-wrap"
-          title="Мой профиль"
-          onClick={() => identity && setProfileContact({
-            id: 0,
-            public_key: identity.public_key,
-            nickname: identity.nickname,
-            local_alias: null,
-            status: myStatus as any,
-            status_text: null,
-            last_seen: null,
-            notes: null,
-            is_blocked: false,
-            is_favorite: false,
-            added_at: 0,
-            verified: false,
-            avatar_data: myAvatar,
-          })}
         >
           {myAvatar
             ? <img src={myAvatar} style={s.avatarImg} />
