@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore, Message, Contact, Chat } from '../store'
 import ContactProfile from './ContactProfile'
+import { playClickSound, isSoundEnabled } from '../utils/sounds'
 
 // Обёртка для loadMessages через store.getState()
 const storeLoadMessages = async (chatId: number) => {
@@ -264,6 +265,7 @@ export default function ChatWindow() {
         await sendMessage(activeChat.peer_key, text.trim(), replyTo?.id)
       }
       setReplyTo(null)
+      isSoundEnabled().then(ok => { if (ok) playClickSound() })
 
       // После отправки перезагружаем сообщения для синхронизации
       const chatId = activeChat?.id ?? -1

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useStore, NostrMessage, ChannelReaction, ChannelMedia, PollData, parseChannelContent, buildChannelContent, buildPollContent } from '../store'
+import { playClickSound, isSoundEnabled } from '../utils/sounds'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -725,8 +726,10 @@ export default function ChannelWindow() {
     try {
       if (replyTarget) {
         await useStore.getState().sendComment(activeChannel.channel_id, replyTarget.event_id, content)
+        isSoundEnabled().then(ok => { if (ok) playClickSound() })
       } else {
         await sendChannelMessage(activeChannel.channel_id, content)
+        isSoundEnabled().then(ok => { if (ok) playClickSound() })
         addChannelMessage({
           id: -Date.now(),
           event_id: `local_${Date.now()}`,

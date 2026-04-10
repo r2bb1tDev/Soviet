@@ -7,40 +7,8 @@ import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
 import Settings from './pages/Settings'
 import ToastContainer from './components/Toast'
+import { isSoundEnabled, playNotificationBeep, playOnlineSound, playOfflineSound } from './utils/sounds'
 import './styles/global.css'
-
-// Простой звук уведомления через Web Audio API (без внешних файлов)
-function playNotificationBeep() {
-  try {
-    const ctx = new AudioContext()
-    const osc1 = ctx.createOscillator()
-    const osc2 = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc1.connect(gain)
-    osc2.connect(gain)
-    gain.connect(ctx.destination)
-    osc1.type = 'sine'
-    osc2.type = 'sine'
-    osc1.frequency.setValueAtTime(880, ctx.currentTime)
-    osc2.frequency.setValueAtTime(1320, ctx.currentTime + 0.08)
-    gain.gain.setValueAtTime(0, ctx.currentTime)
-    gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.01)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
-    osc1.start(ctx.currentTime)
-    osc1.stop(ctx.currentTime + 0.15)
-    osc2.start(ctx.currentTime + 0.08)
-    osc2.stop(ctx.currentTime + 0.4)
-    // Закрываем контекст ПОСЛЕ окончания звука, иначе он обрывается
-    setTimeout(() => ctx.close(), 600)
-  } catch { /* браузер заблокировал AudioContext — молча игнорируем */ }
-}
-
-async function isSoundEnabled(): Promise<boolean> {
-  try {
-    const s = await invoke<any>('get_settings')
-    return s?.notify_sounds !== false
-  } catch { return false }
-}
 
 export default function App() {
   const {
@@ -220,8 +188,13 @@ export default function App() {
     })
 
     // ── Статус контакта ───────────────────────────────────────────────────────
-    const unlisten6 = listen<{ pk: string; status: string; status_text?: string; avatar?: string }>('contact-status', (e) => {
+    const unlisten6 = listen<{ pk: string; status: string; status_text?: string; avatar?: string }>('contact-status', async (e) => {
+      const prev = useStore.getState().contacts.find(c => c.public_key === e.payload.pk)?.status
       updateContactStatus(e.payload.pk, e.payload.status, e.payload.status_text, e.payload.avatar)
+      if (await isSoundEnabled()) {
+        if (e.payload.status === 'online' && prev !== 'online') playOnlineSound()
+        else if (e.payload.status === 'offline' && prev === 'online') playOfflineSound()
+      }
     })
 
     // ── Read receipt ──────────────────────────────────────────────────────────
