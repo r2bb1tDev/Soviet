@@ -47,13 +47,21 @@ export default function ChatWindow() {
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ text: string; onConfirm: () => void } | null>(null)
 
+  const [isAtBottom, setIsAtBottom] = useState(true)
+  const [missedCount, setMissedCount] = useState(0)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const isAtBottomRef = useRef(true)
+  const prevChatIdRef = useRef<number | null>(null)
+  const textRef = useRef(text)
+  useEffect(() => { textRef.current = text }, [text])
 
   // В проекте уже есть события Tauri (`new-message`, `group-message`), поэтому
   // polling здесь не нужен и добавляет задержки/нагрузку.
@@ -115,12 +123,53 @@ export default function ChatWindow() {
 
   const isTyping = activeChat?.peer_key ? (typingUsers[activeChat.peer_key] ?? false) : false
 
-  // Автоскролл при новых сообщениях
+  // Автоскролл — только если уже внизу
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length === 0) return
+    if (isAtBottomRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      setMissedCount(0)
+    } else {
+      setMissedCount(n => n + 1)
     }
-  }, [messages])
+  }, [messages.length])
+
+  // Сброс позиции при смене чата + черновики
+  useEffect(() => {
+    const prevId = prevChatIdRef.current
+    const newId = activeChat?.id ?? null
+    if (prevId !== null && prevId !== newId) {
+      const key = `soviet_draft_${prevId}`
+      if (textRef.current.trim()) localStorage.setItem(key, textRef.current)
+      else localStorage.removeItem(key)
+    }
+    if (newId !== null && newId !== prevId) {
+      const draft = localStorage.getItem(`soviet_draft_${newId}`) ?? ''
+      setText(draft)
+    }
+    prevChatIdRef.current = newId
+    // Scroll to bottom on chat change
+    isAtBottomRef.current = true
+    setIsAtBottom(true)
+    setMissedCount(0)
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior }), 50)
+  }, [activeChat?.id])
+
+  const handleContainerScroll = () => {
+    const el = messagesContainerRef.current
+    if (!el) return
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 100
+    isAtBottomRef.current = atBottom
+    setIsAtBottom(atBottom)
+    if (atBottom) setMissedCount(0)
+  }
+
+  const jumpToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    setIsAtBottom(true)
+    isAtBottomRef.current = true
+    setMissedCount(0)
+  }
 
   const handleLoadMore = async () => {
     if (!activeChat?.id || messages.length === 0) return
@@ -441,7 +490,7 @@ export default function ChatWindow() {
       </div>
 
       {/* ── Message list ── */}
-      <div style={s.messages}>
+      <div ref={messagesContainerRef} style={s.messages} onScroll={handleContainerScroll}>
         {messages.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 10px' }}>
             <button className="btn-secondary" style={{ fontSize: 12, padding: '6px 10px' }} onClick={handleLoadMore}>
@@ -516,6 +565,13 @@ export default function ChatWindow() {
 
         <div ref={messagesEndRef} />
       </div>
+
+      {/* ── Jump to bottom ── */}
+      {!isAtBottom && (
+        <button style={s.jumpBtn} onClick={jumpToBottom}>
+          ↓ {missedCount > 0 ? `${missedCount > 99 ? '99+' : missedCount} новых` : 'Вниз'}
+        </button>
+      )}
 
       {/* ── Emoji picker ── */}
       {showEmoji && (
@@ -1128,9 +1184,8 @@ function statusLabel(status: string, text?: string | null): React.ReactNode {
 const s: Record<string, React.CSSProperties> = {
   root: {
     display: 'flex', flexDirection: 'column',
-    height: '100vh',
+    height: '100vh', position: 'relative',
     background: 'var(--bg-chat)',
-    position: 'relative',
     flex: 1, minWidth: 0,
   },
   header: {
@@ -1187,6 +1242,21 @@ const s: Record<string, React.CSSProperties> = {
     borderRadius: '18px 18px 18px 4px',
     padding: '10px 14px',
     boxShadow: '0 1px 2px var(--shadow)',
+  },
+  jumpBtn: {
+    position: 'absolute',
+    bottom: 78, right: 16,
+    zIndex: 50,
+    background: 'var(--accent)',
+    color: '#000',
+    border: 'none',
+    borderRadius: 20,
+    padding: '6px 14px',
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+    fontFamily: 'inherit',
   },
   emojiPicker: {
     display: 'flex', flexWrap: 'wrap', gap: 2,
