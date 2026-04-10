@@ -7,10 +7,15 @@ export default function Onboarding() {
   const [step, setStep] = useState<'name' | 'keys' | 'import'>('name')
   const [nickname, setNickname] = useState('')
   const [pubKey, setPubKey] = useState('')
+  const [privKey, setPrivKey] = useState('')
   const [importKey, setImportKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [exportCopied, setExportCopied] = useState(false)
+  const [customId, setCustomId] = useState('')
+  const [customIdSaved, setCustomIdSaved] = useState(false)
+  const [customIdError, setCustomIdError] = useState('')
   const { setIdentity, setPage } = useStore()
 
   const handleCreate = async () => {
@@ -23,11 +28,34 @@ export default function Onboarding() {
       setPubKey(id.public_key)
       setStep('keys')
       setIdentity(id as any)
+      // Fetch private key for backup export
+      invoke<string>('export_keys').then(setPrivKey).catch(() => {})
     } catch (e) {
       setError(String(e))
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSaveCustomId = async () => {
+    const id = customId.trim()
+    if (id && !/^[a-zA-Z0-9_]{3,10}$/.test(id)) {
+      setCustomIdError('3-10 символов: буквы, цифры, _')
+      return
+    }
+    setCustomIdError('')
+    try {
+      await invoke('set_custom_id', { customId: id || null })
+      setCustomIdSaved(true)
+      setTimeout(() => setCustomIdSaved(false), 2000)
+    } catch (e) { console.error(e) }
+  }
+
+  const exportKeys = () => {
+    if (!privKey) return
+    navigator.clipboard.writeText(privKey)
+    setExportCopied(true)
+    setTimeout(() => setExportCopied(false), 2000)
   }
 
   const handleImport = async () => {
@@ -99,9 +127,36 @@ export default function Onboarding() {
                 {copied ? '✓' : '📋'}
               </button>
             </div>
-            <div style={s.warning}>
+
+            {/* Custom ID */}
+            <p style={{ ...s.subtitle, marginTop: 16, marginBottom: 4, textAlign: 'left' }}>
+              Короткий ID <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>(опционально, 3-10 символов)</span>
+            </p>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }}>@</span>
+                <input
+                  style={{ ...s.input, paddingLeft: 22, width: '100%' }}
+                  placeholder="polarbear"
+                  value={customId}
+                  maxLength={10}
+                  onChange={e => { setCustomId(e.target.value); setCustomIdError('') }}
+                />
+              </div>
+              <button className="btn-secondary" style={{ flexShrink: 0, fontSize: 12 }} onClick={handleSaveCustomId}>
+                {customIdSaved ? '✓' : 'Сохранить'}
+              </button>
+            </div>
+            {customIdError && <div style={{ fontSize: 11, color: 'var(--busy)', marginTop: 3 }}>{customIdError}</div>}
+
+            {/* Export warning */}
+            <div style={{ ...s.warning, marginTop: 14 }}>
               ⚠️ Сохраните резервную копию приватного ключа в безопасном месте!
             </div>
+            <button className="btn-secondary" style={{ ...s.btn, fontSize: 13, marginBottom: 8 }} onClick={exportKeys}>
+              {exportCopied ? '✓ Скопировано в буфер' : '📥 Скопировать приватный ключ'}
+            </button>
+
             <button className="btn-primary" style={s.btn} onClick={() => setPage('main')}>
               Готово ✓
             </button>
