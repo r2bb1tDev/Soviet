@@ -11,67 +11,67 @@
   --bg-primary:         #0A0A0A;
   --bg-secondary:       #0D0D0D;
   --bg-tertiary:        #111111;
-  --bg-hover:           #1A2A1A;
+  --bg-hover:           #0F2218;
   --bg-chat:            #050505;
   --bg-sidebar:         #080808;
 
-  /* Accent — phosphor green */
-  --accent:             #00FF41;
-  --accent-hover:       #00CC33;
+  /* Accent — softer emerald green */
+  --accent:             #2ECC71;
+  --accent-hover:       #27AE60;
   --accent-text:        #000000;
 
-  /* Text */
-  --text-primary:       #00FF41;
-  --text-secondary:     #00BB30;
-  --text-muted:         #006618;
-  --text-link:          #00FFFF;
+  /* Text — light mint, comfortable to read */
+  --text-primary:       #C8FFD4;
+  --text-secondary:     #6ECC8A;
+  --text-muted:         #2E6642;
+  --text-link:          #5EDFFF;
 
   /* Bubbles — flat, terminal-style */
-  --bubble-out-bg:      #001800;
-  --bubble-out-text:    #00FF41;
-  --bubble-out-meta:    #009922;
+  --bubble-out-bg:      #071A0F;
+  --bubble-out-text:    #C8FFD4;
+  --bubble-out-meta:    #3D8855;
   --bubble-in-bg:       #0A0A0A;
-  --bubble-in-text:     #00FF41;
-  --bubble-in-meta:     #006618;
+  --bubble-in-text:     #C8FFD4;
+  --bubble-in-meta:     #2E6642;
   --bubble-radius:      0px;
   --bubble-radius-tail: 0px;
 
   /* Channel */
   --bubble-channel-bg:  #0A0A0A;
-  --bubble-channel-text:#00FF41;
+  --bubble-channel-text:#C8FFD4;
 
   /* Sidebar row */
-  --row-active-bg:      #001800;
-  --row-unread-badge:   #00FF41;
-  --row-muted-badge:    #004411;
+  --row-active-bg:      #071A0F;
+  --row-unread-badge:   #2ECC71;
+  --row-muted-badge:    #0D3320;
 
   /* Borders */
-  --border:             #1A3A1A;
-  --border-light:       #0D200D;
-  --divider:            #1A3A1A;
+  --border:             #1A3D26;
+  --border-light:       #0D2218;
+  --divider:            #1A3D26;
 
   /* Status */
-  --online:             #00FF41;
-  --away:               #FFFF00;
-  --busy:               #FF4141;
-  --offline:            #333333;
+  --online:             #2ECC71;
+  --away:               #F0C040;
+  --busy:               #E05252;
+  --offline:            #3A3A3A;
 
   /* Inputs */
   --input-bg:           #050505;
-  --input-border:       #1A3A1A;
-  --input-focus:        #00FF41;
+  --input-border:       #1A3D26;
+  --input-focus:        #2ECC71;
   --input-compose-bg:   #050505;
 
   /* Misc */
-  --shadow:             rgba(0,255,65,0.08);
-  --shadow-md:          rgba(0,255,65,0.14);
-  --scrollbar:          #1A3A1A;
+  --shadow:             rgba(46,204,113,0.07);
+  --shadow-md:          rgba(46,204,113,0.13);
+  --scrollbar:          #1A3D26;
   --btn-secondary:      #0D0D0D;
   --header-bg:          #050505;
-  --header-text:        #00FF41;
-  --header-sub:         #00BB30;
-  --tick-read:          #00FF41;
-  --tick-unread:        #004411;
+  --header-text:        #C8FFD4;
+  --header-sub:         #6ECC8A;
+  --tick-read:          #2ECC71;
+  --tick-unread:        #1A4D2E;
 }
 
 /* ── Reset & Base ── */
@@ -106,7 +106,7 @@ html::after {
 }
 
 /* Phosphor glow */
-:root { --glow: 0 0 6px rgba(0,255,65,0.4); }
+:root { --glow: 0 0 7px rgba(46,204,113,0.35); }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -116,7 +116,7 @@ html::after {
 
 /* ── Typography ── */
 a { color: var(--text-link); text-decoration: none; }
-a:hover { text-decoration: underline; color: #00FFFF; }
+a:hover { text-decoration: underline; color: #5EDFFF; }
 
 /* ── Input / Textarea ── */
 input, textarea {
@@ -228,17 +228,17 @@ button:active { opacity: 0.75; }
   background: var(--bubble-out-bg);
   color: var(--bubble-out-text);
   border-left: 2px solid var(--accent);
-  border-top: 1px solid #004411;
-  border-right: 1px solid #004411;
-  border-bottom: 1px solid #004411;
+  border-top: 1px solid #1A4D2E;
+  border-right: 1px solid #1A4D2E;
+  border-bottom: 1px solid #1A4D2E;
 }
 .bubble.in {
   background: var(--bubble-in-bg);
   color: var(--bubble-in-text);
   border-left: 2px solid var(--text-muted);
-  border-top: 1px solid #1A3A1A;
-  border-right: 1px solid #1A3A1A;
-  border-bottom: 1px solid #1A3A1A;
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 /* Meta line */
@@ -293,7 +293,7 @@ button:active { opacity: 0.75; }
   border-left: 2px solid var(--accent);
   padding: 3px 8px;
   margin-bottom: 4px;
-  background: rgba(0,255,65,0.04);
+  background: rgba(46,204,113,0.06);
   font-size: 11px;
   color: var(--text-secondary);
 }
