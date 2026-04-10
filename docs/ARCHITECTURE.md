@@ -2,14 +2,16 @@
 
 ## Обзор
 
-Soviet Messenger (v1.2) построен на **Tauri 2.1** с Rust-бэкенд и React/TypeScript-фронтенд. Это децентрализованный мессенджер с поддержкой:
+Soviet Messenger (v2.2) построен на **Tauri 2** с Rust-бэкенд и React/TypeScript-фронтенд. Это децентрализованный мессенджер с поддержкой:
 
-1. **Прямых E2E чатов** — шифрование ChaCha20-Poly1305 через ECDH
-2. **Групповых чатов** — групповой симметричный ключ
-3. **LAN-режима** — без интернета, mDNS + TCP
-4. **P2P mesh-сети** — libp2p Kademlia DHT через интернет
-5. **Nostr каналов v2** — публичные каналы с редактированием, удалением, реакциями, комментариями и медиа (Telegram-parity)
+1. **Прямых E2E чатов** — шифрование ChaCha20-Poly1305 через ECDH + X25519
+2. **Групповых чатов** — групповой симметричный ключ с ротацией
+3. **LAN-режима** — без интернета, mDNS (libp2p) + UDP broadcast + TCP
+4. **P2P mesh-сети** — libp2p 0.53 Kademlia DHT + DCUtR NAT traversal
+5. **Nostr каналов v2** — посты, опросы, реакции, комментарии, медиа, поиск
 6. **Nostr DM fallback** — Kind 4444 E2E-шифрованные личные сообщения через relay
+7. **Шифрование БД** — ChaCha20-Poly1305 для чувствительных полей + OS keyring
+8. **Автообновление** — Tauri updater + minisign, уведомление в трее
 
 ---
 
@@ -17,7 +19,7 @@ Soviet Messenger (v1.2) построен на **Tauri 2.1** с Rust-бэкенд
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                      TAURI 2.1 ПРИЛОЖЕНИЕ                      │
+│                      TAURI 2 ПРИЛОЖЕНИЕ                        │
 │                                                                │
 │  ┌─────────────────────────────────────────────────────────┐  │
 │  │              REACT FRONTEND (TypeScript)                │  │
@@ -155,7 +157,7 @@ fn nostr_join_channel(channel_id: String) -> Result<(), String>
 fn nostr_send_message(channel_id: String, content: String, ...) -> Result<(), String>
 fn get_nostr_channels() -> Result<Vec<NostrChannel>, String>
 
-// Nostr Channels v2 (новое в v1.2)
+// Nostr Channels v2 (с v1.2)
 fn nostr_edit_channel_message(event_id: String, channel_id: String, new_content: String) -> Result<(), String>
 fn nostr_delete_channel_message(event_id: String, channel_id: String) -> Result<(), String>
 fn nostr_send_channel_reaction(event_id: String, channel_id: String, emoji: String) -> Result<(), String>
@@ -312,7 +314,7 @@ kind=40:   Create channel
 kind=41:   Update channel metadata
 kind=42:   Channel message / edit (тег "edit") / comment (тег "reply")
 kind=5:    Delete event (soft-delete)
-kind=7:    Reaction (NIP-25) — новое в v1.2
+kind=7:    Reaction (NIP-25) — с v1.2
 kind=4444: Soviet DM fallback (E2E)
 ```
 
@@ -419,7 +421,7 @@ CREATE TABLE nostr_messages (
     reply_to TEXT               -- event_id родительского поста (для комментариев)
 );
 
--- Реакции на сообщения в Nostr каналах (новое в v1.2)
+-- Реакции на сообщения в Nostr каналах (с v1.2)
 CREATE TABLE nostr_reactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL,         -- target event ID
@@ -592,15 +594,17 @@ impl TrayManager {
 
 ## Темы и интернационализация
 
-### Темы (v1.0)
+### Темы (v1.0+)
 
-- **Light** — белый фон (#FFFFFF), тёмный текст (#1A1A1A)
-- **Dark** — тёмный фон (#1E1E2E), светлый текст (#CDD6F4)
-- **Auto** — следует prefers-color-scheme
+- **Dark (по умолчанию)** — терминальный CRT стиль: фон `#0A0A0A`, акцент `#2ECC71`, текст `#C8FFD4`
+- **Light** — светлый вариант: фон `#F0FFF4`, акцент `#27AE60`
+- **Auto** — следует `prefers-color-scheme` ОС
+- **Высокий контраст** — `data-contrast="high"`: белый текст `#FFFFFF`, акцент `#00FF88` (с v2.3)
+- **Масштаб интерфейса** — 100/125/150/200% через `document.documentElement.style.zoom` (с v2.3)
 
-### Интернационализация (v2.0)
+### Интернационализация
 
-В v1.0 только русский. Планируется поддержка i18n в v2.0.
+В v2.2 только русский язык. Поддержка i18n планируется в будущих версиях.
 
 ---
 
@@ -642,7 +646,7 @@ npm run tauri build # Generates installers for current platform
 
 ## CI/CD
 
-GitHub Actions автоматически собирает бинарники при создании тага (`v1.0.0`):
+GitHub Actions автоматически собирает бинарники при создании тага (`v2.2.0`):
 
 ```yaml
 name: Release Build
