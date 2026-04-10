@@ -1,6 +1,8 @@
 use rusqlite::{Connection, params};
 use serde::{Serialize, Deserialize};
 use std::sync::Mutex;
+use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use chacha20poly1305::aead::{Aead, KeyInit};
 
 pub struct Db(pub Mutex<Connection>);
 
@@ -91,6 +93,34 @@ pub fn open(path: &str) -> anyhow::Result<Connection> {
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
     migrate(&conn)?;
     Ok(conn)
+}
+
+// ─── Application-level field encryption (ChaCha20-Poly1305) ──────────────────
+
+/// Шифрует строку с помощью ChaCha20-Poly1305.
+/// Формат вывода (hex): <24-символа nonce><hex-ciphertext>
+pub fn encrypt_field(key: &[u8; 32], plaintext: &str) -> String {
+    use rand::RngCore;
+    let cipher = ChaCha20Poly1305::new(Key::from_slice(key));
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ct = cipher.encrypt(nonce, plaintext.as_bytes()).unwrap_or_default();
+    format!("{}{}", hex::encode(nonce_bytes), hex::encode(ct))
+}
+
+/// Расшифровывает строку, зашифрованную через `encrypt_field`.
+pub fn decrypt_field(key: &[u8; 32], encoded: &str) -> anyhow::Result<String> {
+    if encoded.len() < 24 {
+        anyhow::bail!("encrypted field too short");
+    }
+    let nonce_bytes = hex::decode(&encoded[..24])?;
+    let ct = hex::decode(&encoded[24..])?;
+    let cipher = ChaCha20Poly1305::new(Key::from_slice(key));
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let pt = cipher.decrypt(nonce, ct.as_slice())
+        .map_err(|e| anyhow::anyhow!("decrypt_field: {}", e))?;
+    Ok(String::from_utf8(pt)?)
 }
 
 fn migrate(conn: &Connection) -> anyhow::Result<()> {
@@ -1021,22 +1051,31 @@ pub struct NostrReactionRow {
     pub created_at: i64,
 }
 
-pub fn nostr_get_keys(conn: &Connection) -> anyhow::Result<Option<(String, String)>> {
+/// Читает Nostr-ключи из БД и расшифровывает секретный ключ.
+/// `enc_key` — 32-байтовый ключ шифрования из OS keyring.
+pub fn nostr_get_keys(conn: &Connection, enc_key: &[u8; 32]) -> anyhow::Result<Option<(String, String)>> {
     let mut stmt = conn.prepare("SELECT secret_key_hex, public_key_hex FROM nostr_keys WHERE id=1")?;
     let result = stmt.query_row([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     });
     match result {
-        Ok(v) => Ok(Some(v)),
+        Ok((enc_secret, pubkey)) => {
+            // Пробуем расшифровать; если не получилось — значит ключ хранится в старом plaintext формате
+            let secret = decrypt_field(enc_key, &enc_secret).unwrap_or(enc_secret);
+            Ok(Some((secret, pubkey)))
+        }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e.into()),
     }
 }
 
-pub fn nostr_save_keys(conn: &Connection, secret_hex: &str, pubkey_hex: &str) -> anyhow::Result<()> {
+/// Сохраняет Nostr-ключи в БД, шифруя секретный ключ.
+/// `enc_key` — 32-байтовый ключ шифрования из OS keyring.
+pub fn nostr_save_keys(conn: &Connection, enc_key: &[u8; 32], secret_hex: &str, pubkey_hex: &str) -> anyhow::Result<()> {
+    let encrypted_secret = encrypt_field(enc_key, secret_hex);
     conn.execute(
         "INSERT OR REPLACE INTO nostr_keys (id, secret_key_hex, public_key_hex) VALUES (1, ?1, ?2)",
-        params![secret_hex, pubkey_hex],
+        params![encrypted_secret, pubkey_hex],
     )?;
     Ok(())
 }

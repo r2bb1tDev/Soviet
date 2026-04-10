@@ -18,6 +18,37 @@ const TRAY_IDLE_PNG:  &[u8] = include_bytes!("../icons/tray_idle.png");
 const TRAY_MSG_PNG:   &[u8] = include_bytes!("../icons/tray_message.png");
 const DEFAULT_RELAY: &str = "wss://relay.damus.io";
 
+// ─── Application-level DB field encryption key ────────────────────────────────
+
+/// Возвращает 32-байтовый ключ для шифрования чувствительных полей БД.
+/// При первом запуске генерирует случайный ключ и сохраняет в OS keyring.
+fn get_or_create_field_enc_key() -> [u8; 32] {
+    const SERVICE: &str = "sovietmsg-db";
+    const ACCOUNT: &str = "field_enc_key";
+
+    if let Ok(entry) = keyring::Entry::new(SERVICE, ACCOUNT) {
+        if let Ok(hex_key) = entry.get_password() {
+            if let Ok(bytes) = hex::decode(&hex_key) {
+                if bytes.len() == 32 {
+                    let mut key = [0u8; 32];
+                    key.copy_from_slice(&bytes);
+                    return key;
+                }
+            }
+        }
+    }
+
+    use rand::RngCore;
+    let mut key = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut key);
+
+    if let Ok(entry) = keyring::Entry::new(SERVICE, ACCOUNT) {
+        entry.set_password(&hex::encode(key)).ok();
+    }
+    log::info!("DB: generated new field encryption key");
+    key
+}
+
 // ─── App State ────────────────────────────────────────────────────────────────
 
 pub struct AppState {
@@ -1900,7 +1931,10 @@ pub fn run() {
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
             std::fs::create_dir_all(&data_dir).ok();
             let db_path = data_dir.join("sovietmsg.db");
-            let conn = storage::open(db_path.to_str().unwrap_or("sovietmsg.db"))
+            let db_path_str = db_path.to_str().unwrap_or("sovietmsg.db");
+            // Ключ для шифрования чувствительных полей (хранится в OS keyring)
+            let enc_key = get_or_create_field_enc_key();
+            let conn = storage::open(db_path_str)
                 .expect("Cannot open database");
 
             // 2. Загружаем сохранённую идентичность
@@ -1919,11 +1953,11 @@ pub fn run() {
             let (tx, mut rx) = mpsc::unbounded_channel::<(String, LanPacket)>();
 
             // 3b. Initialize Nostr keys and channels
-            let (n_secret, n_pubkey) = match storage::nostr_get_keys(&conn) {
+            let (n_secret, n_pubkey) = match storage::nostr_get_keys(&conn, &enc_key) {
                 Ok(Some(keys)) => keys,
                 _ => {
                     let (s, p) = nostr::generate_keys();
-                    storage::nostr_save_keys(&conn, &s, &p).ok();
+                    storage::nostr_save_keys(&conn, &enc_key, &s, &p).ok();
                     (s, p)
                 }
             };
@@ -1942,7 +1976,7 @@ pub fn run() {
 
             // Open a second DB connection for Nostr (runs in separate thread)
             let n_db = Arc::new(std::sync::Mutex::new(
-                storage::open(db_path.to_str().unwrap_or("sovietmsg.db"))
+                storage::open(db_path_str)
                     .expect("Cannot open nostr db connection")
             ));
             let nostr_handle = nostr::start(
