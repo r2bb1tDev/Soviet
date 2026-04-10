@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/badge/скачать-v1.3.5-blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v2.0.0-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
@@ -187,7 +187,8 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 - [x] v1.3 — поиск по переписке, звук ICQ, офлайн store-and-forward, передача файлов
 - [x] v1.3.5 — последний релиз: Enter с первого нажатия, reaction picker, plaintext из БД, локализация настроек
 - [x] v1.3.5 — терминальный UI, OS-уведомления, LAN надёжность, фикс билдов
-- [ ] v2.0 — голосовые сообщения, NAT hole-punching (DCUtR), шифрование БД
+- [x] v2.0 — голосовые сообщения, NAT hole-punching (DCUtR), шифрование БД, ответ на сообщения
+- [ ] v2.1 — многоустройственная синхронизация, SQLCipher (полное шифрование файла БД)
 
 ---
 
