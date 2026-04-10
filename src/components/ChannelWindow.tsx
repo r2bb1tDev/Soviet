@@ -248,9 +248,13 @@ function MessageBubble({
         })()}
         <div style={{
           ...s.bubble,
-          background: msg.is_mine ? 'var(--accent)' : 'var(--bg-secondary)',
-          color: msg.is_mine ? 'white' : 'var(--text-primary)',
-          borderRadius: msg.is_mine ? '16px 4px 16px 16px' : '4px 16px 16px 16px',
+          background: msg.is_mine ? 'var(--bubble-out-bg)' : 'var(--bg-secondary)',
+          color: 'var(--text-primary)',
+          borderRadius: 0,
+          borderLeft: msg.is_mine ? '2px solid var(--accent)' : '2px solid var(--text-muted)',
+          borderTop: '1px solid var(--border)',
+          borderRight: '1px solid var(--border)',
+          borderBottom: '1px solid var(--border)',
         }}>
           {editing ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -580,9 +584,18 @@ export default function ChannelWindow() {
         <ChannelAvatar channel={activeChannel} size={36} />
         <div style={s.headerInfo}>
           <div style={s.channelName}>{activeChannel.name || 'Канал'}</div>
+          {activeChannel.about && (
+            <div style={s.channelAbout}>{activeChannel.about}</div>
+          )}
           <div style={s.channelId}>
             {subscriberCount > 0 ? `${subscriberCount} подписч. · ` : ''}
-            ID: {activeChannel.channel_id.slice(0, 16)}…
+            <span
+              title={activeChannel.channel_id}
+              style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
+              onClick={() => navigator.clipboard.writeText(activeChannel.channel_id)}
+            >
+              ID: {activeChannel.channel_id.slice(0, 12)}…
+            </span>
           </div>
         </div>
         <div style={s.nostrBadge}>⚡ Nostr</div>
@@ -811,7 +824,7 @@ function ChannelAvatar({ channel, size }: { channel: { name: string; picture: st
 function ChannelSettingsModal({
   channel, onClose, onSave, isCreator, onDelete,
 }: {
-  channel: { name: string; about: string; picture: string }
+  channel: { channel_id: string; name: string; about: string; picture: string }
   isCreator: boolean
   onClose: () => void
   onSave: (name: string, about: string, picture: string) => Promise<void>
@@ -861,6 +874,28 @@ function ChannelSettingsModal({
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Нажмите для смены аватара</span>
           <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
         </div>
+        {/* Channel ID with copy */}
+        <div style={{ marginBottom: 8 }}>
+          <label style={ms.label}>ID канала</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <div style={{
+              ...ms.input, flex: 1, fontSize: 11, fontFamily: 'monospace',
+              color: 'var(--text-secondary)', overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              padding: '6px 10px', userSelect: 'all',
+            }}>
+              {channel.channel_id}
+            </div>
+            <button
+              className="btn-icon"
+              title="Скопировать ID"
+              style={{ flexShrink: 0, fontSize: 16 }}
+              onClick={() => {
+                navigator.clipboard.writeText(channel.channel_id)
+              }}
+            >📋</button>
+          </div>
+        </div>
         <label style={ms.label}>Название</label>
         <input style={ms.input} value={name} onChange={e => setName(e.target.value)} maxLength={64} />
         <label style={{ ...ms.label, marginTop: 8 }}>Описание</label>
@@ -901,7 +936,8 @@ const s: Record<string, React.CSSProperties> = {
   header: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)', flexShrink: 0 },
   headerInfo: { flex: 1, minWidth: 0 },
   channelName: { fontWeight: 600, fontSize: 15 },
-  channelId: { fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' },
+  channelAbout: { fontSize: 11, color: 'var(--text-secondary)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  channelId: { fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace', marginTop: 1 },
   nostrBadge: { fontSize: 11, background: 'rgba(128,0,255,0.12)', color: '#9b59b6', borderRadius: 6, padding: '2px 8px', border: '1px solid rgba(128,0,255,0.2)', fontWeight: 600, flexShrink: 0 },
   messages: { flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 4 },
   emptyMessages: { textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, marginTop: 40 },
