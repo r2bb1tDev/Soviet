@@ -35,7 +35,8 @@ export default function CreateChannelModal({ onClose, onCreated }: Props) {
     if (id.length < 40) { setError('Введите корректный ID канала (64 hex символа)'); return }
     setLoading(true); setError('')
     try {
-      await joinChannel(id)
+      const relay = localStorage.getItem('customRelay') || undefined
+      await joinChannel(id, relay)
       setDone(true)
       setTimeout(() => { onCreated?.(id); onClose() }, 1000)
     } catch (e) {
