@@ -190,6 +190,13 @@ export default function App() {
         addToast({ type: 'message', title: sender_name, body: preview, chatId: chat_id, senderPk: sender_pk })
         // Звуковое уведомление (ICQ-стиль)
         if (await isSoundEnabled()) playNotificationBeep()
+        // Системное уведомление ОС (когда окно не в фокусе)
+        if (document.visibilityState === 'hidden') {
+          try {
+            const { sendNotification } = await import('@tauri-apps/plugin-notification')
+            sendNotification({ title: sender_name, body: preview })
+          } catch { }
+        }
       }
     })
 
@@ -199,6 +206,12 @@ export default function App() {
       addToast({ type: 'request', title: 'Запрос контакта',
         body: `${e.payload.nickname} хочет добавить вас в контакты`, senderPk: e.payload.sender_pk })
       if (await isSoundEnabled()) playNotificationBeep()
+      if (document.visibilityState === 'hidden') {
+        try {
+          const { sendNotification } = await import('@tauri-apps/plugin-notification')
+          sendNotification({ title: 'Запрос контакта', body: `${e.payload.nickname} хочет добавить вас в контакты` })
+        } catch { }
+      }
     })
 
     // ── Навигация из трея ─────────────────────────────────────────────────────
@@ -269,6 +282,12 @@ export default function App() {
         get().loadChats()
         addToast({ type: 'message', title: e.payload.sender_name, body: e.payload.preview, chatId: e.payload.chat_id })
         if (await isSoundEnabled()) playNotificationBeep()
+        if (document.visibilityState === 'hidden') {
+          try {
+            const { sendNotification } = await import('@tauri-apps/plugin-notification')
+            sendNotification({ title: e.payload.sender_name, body: e.payload.preview })
+          } catch { }
+        }
       }
     })
 
