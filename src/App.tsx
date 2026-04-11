@@ -7,6 +7,7 @@ import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
 import Settings from './pages/Settings'
 import ToastContainer from './components/Toast'
+import KeyboardShortcuts from './components/KeyboardShortcuts'
 import { isSoundEnabled, playNotificationBeep, playOnlineSound, playOfflineSound } from './utils/sounds'
 import './styles/global.css'
 
@@ -34,6 +35,7 @@ export default function App() {
 
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<any>(null)
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   const checkForUpdates = async () => {
     try {
@@ -104,7 +106,12 @@ export default function App() {
         window.dispatchEvent(new CustomEvent('soviet:new-chat'))
       }
       if (e.key === 'Escape') {
+        setShowShortcuts(false)
         window.dispatchEvent(new CustomEvent('soviet:escape'))
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault()
+        setShowShortcuts(v => !v)
       }
     }
     window.addEventListener('keydown', handler)
@@ -359,6 +366,7 @@ export default function App() {
       )}
 
       <ToastContainer />
+      {showShortcuts && <KeyboardShortcuts onClose={() => setShowShortcuts(false)} />}
     </>
   )
 }
