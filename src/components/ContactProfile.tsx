@@ -94,6 +94,11 @@ export default function ContactProfile({ contact, onClose }: Props) {
           {contact.nickname !== displayName && (
             <div style={s.origName}>{contact.nickname}</div>
           )}
+          {contact.status_text && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, fontStyle: 'italic' }}>
+              "{contact.status_text}"
+            </div>
+          )}
           <div style={s.statusLabel}>
             {contact.verified && <span style={s.verifiedBadge}>✓ Верифицирован</span>}
             {contact.is_favorite && <span style={s.favBadge}>★ Избранное</span>}
