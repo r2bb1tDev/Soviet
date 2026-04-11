@@ -672,6 +672,15 @@ export default function ChatWindow() {
             onKeyDown={handleKeyDown}
             rows={1}
           />
+          {text.length > 800 && (
+            <span style={{
+              position: 'absolute', bottom: 4, right: 6,
+              fontSize: 10, color: text.length > 950 ? 'var(--busy)' : 'var(--text-muted)',
+              pointerEvents: 'none', fontFamily: 'monospace',
+            }}>
+              {text.length}/1000
+            </span>
+          )}
         </div>
 
         {/* Кнопка микрофона — голосовые сообщения */}
@@ -1314,7 +1323,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   composeBtn: { width: 36, height: 36, flexShrink: 0 },
   textareaWrap: {
-    flex: 1, minWidth: 0,
+    flex: 1, minWidth: 0, position: 'relative',
     background: 'var(--input-compose-bg)',
     border: '1px solid var(--input-border)',
     borderRadius: 20,
