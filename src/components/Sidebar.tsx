@@ -460,11 +460,28 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 
       {/* ── Bottom status bar (Connection) ── */}
       <div style={s.bottomBar}>
-        <span style={s.bottomItem}>LAN: {lanPeers.length > 0 ? 'В сети' : '—'}</span>
-        <span style={s.bottomSep}>•</span>
-        <span style={s.bottomItem}>P2P: {p2pPeers.length}</span>
-        <span style={s.bottomSep}>•</span>
-        <span style={s.bottomItem}>Запросы: {pendingRequest ? '1' : '0'}</span>
+        <span style={s.bottomItem} title={`LAN: ${lanPeers.length} соседей`}>
+          <span style={{ ...s.dot, background: lanPeers.length > 0 ? 'var(--online)' : 'var(--offline)' }} />
+          LAN
+        </span>
+        <span style={s.bottomSep}>·</span>
+        <span style={s.bottomItem} title={`P2P mesh: ${p2pPeers.length} пиров`}>
+          <span style={{ ...s.dot, background: p2pPeers.length > 0 ? 'var(--online)' : 'var(--away)' }} />
+          P2P{p2pPeers.length > 0 ? ` ${p2pPeers.length}` : ''}
+        </span>
+        <span style={s.bottomSep}>·</span>
+        <span style={s.bottomItem} title="Nostr relay активен">
+          <span style={{ ...s.dot, background: 'var(--online)' }} />
+          Nostr
+        </span>
+        {pendingRequest && (
+          <>
+            <span style={s.bottomSep}>·</span>
+            <span style={{ ...s.bottomItem, color: 'var(--away)', fontWeight: 600 }}>
+              1 запрос
+            </span>
+          </>
+        )}
       </div>
 
       {/* ── Channel context menu ── */}
@@ -867,8 +884,9 @@ const s: Record<string, React.CSSProperties> = {
     gap: 6,
     flexShrink: 0,
   },
-  bottomItem: { whiteSpace: 'nowrap' },
-  bottomSep: { opacity: 0.7 },
+  bottomItem: { whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 },
+  bottomSep: { opacity: 0.4 },
+  dot: { width: 6, height: 6, borderRadius: '50%', flexShrink: 0 },
   ctxMenu: {
     position: 'fixed', zIndex: 9999,
     background: 'var(--bg-primary)',
