@@ -371,6 +371,17 @@ export default function ChatWindow() {
       e.preventDefault()
       handleSend()
     }
+    // ↑ — редактировать последнее своё сообщение (только если поле пустое)
+    if (e.key === 'ArrowUp' && !text.trim()) {
+      const lastOwn = [...messages].reverse().find(
+        m => m.sender_key === identity?.public_key && !m.is_deleted
+      )
+      if (lastOwn) {
+        e.preventDefault()
+        const msgText = decryptedMessages[lastOwn.id] ?? lastOwn.plaintext ?? ''
+        startEdit(lastOwn.id, msgText)
+      }
+    }
   }
 
   const insertEmoji = (emoji: string) => {
