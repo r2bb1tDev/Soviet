@@ -111,10 +111,10 @@ export default function ChatWindow() {
     ? activeChat?.group_name ?? `Группа (${groupMembers.length})`
     : null
   
-  // Имя для отображения: nickname пользователя (без local_alias)
+  // Имя для отображения: local_alias приоритетнее nickname
   const displayName = isGroup
     ? groupName!
-    : contactForChat?.nickname
+    : (contactForChat?.local_alias ?? contactForChat?.nickname)
       ?? (activeChat?.peer_key ? activeChat.peer_key.slice(0, 12) + '...' : '')
 
   const avatarLetter = isGroup

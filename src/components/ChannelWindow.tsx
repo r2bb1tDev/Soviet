@@ -665,6 +665,8 @@ export default function ChannelWindow() {
   const audioRef = useRef<HTMLInputElement>(null)
   const gifRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const msgsContainerRef = useRef<HTMLDivElement>(null)
+  const isAtBottomRef = useRef(true)
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null)
@@ -674,10 +676,41 @@ export default function ChannelWindow() {
   const [forwardMsg, setForwardMsg] = useState<NostrMessage | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showPollComposer, setShowPollComposer] = useState(false)
+  const [chIsAtBottom, setChIsAtBottom] = useState(true)
+  const [chMissed, setChMissed] = useState(0)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (isAtBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      setChMissed(0)
+    } else {
+      setChMissed(n => n + 1)
+    }
   }, [topLevelMessages.length])
+
+  // Scroll to bottom on channel change
+  useEffect(() => {
+    isAtBottomRef.current = true
+    setChIsAtBottom(true)
+    setChMissed(0)
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior }), 50)
+  }, [activeChannel?.channel_id])
+
+  const handleChScroll = () => {
+    const el = msgsContainerRef.current
+    if (!el) return
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 100
+    isAtBottomRef.current = atBottom
+    setChIsAtBottom(atBottom)
+    if (atBottom) setChMissed(0)
+  }
+
+  const jumpChToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    isAtBottomRef.current = true
+    setChIsAtBottom(true)
+    setChMissed(0)
+  }
 
   // Auto-refresh messages and reactions every 10 seconds while channel is open
   useEffect(() => {
@@ -796,7 +829,7 @@ export default function ChannelWindow() {
       </div>
 
       {/* Messages */}
-      <div style={s.messages}>
+      <div ref={msgsContainerRef} style={s.messages} onScroll={handleChScroll}>
         {topLevelMessages.length === 0 && (
           <div style={s.emptyMessages}>Нет постов. {isCreator ? 'Напишите первым!' : 'Подождите публикации.'}</div>
         )}
@@ -836,6 +869,13 @@ export default function ChannelWindow() {
         })}
         <div ref={bottomRef} />
       </div>
+
+      {/* Jump to bottom */}
+      {!chIsAtBottom && (
+        <button style={s.jumpBtn} onClick={jumpChToBottom}>
+          ↓ {chMissed > 0 ? `${chMissed > 99 ? '99+' : chMissed} новых` : 'Вниз'}
+        </button>
+      )}
 
       {/* Reply indicator */}
       {replyTo && (
@@ -1165,7 +1205,7 @@ function ChannelSettingsModal({
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s: Record<string, React.CSSProperties> = {
-  root: { display: 'flex', flexDirection: 'column', flex: 1, height: '100vh', overflow: 'hidden' },
+  root: { display: 'flex', flexDirection: 'column', flex: 1, height: '100vh', overflow: 'hidden', position: 'relative' },
   empty: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-muted)' },
   emptyText: { fontSize: 18, fontWeight: 600, color: 'var(--text-secondary)' },
   emptyHint: { fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', maxWidth: 280 },
@@ -1177,6 +1217,7 @@ const s: Record<string, React.CSSProperties> = {
   nostrBadge: { fontSize: 11, background: 'rgba(128,0,255,0.12)', color: '#9b59b6', borderRadius: 6, padding: '2px 8px', border: '1px solid rgba(128,0,255,0.2)', fontWeight: 600, flexShrink: 0 },
   messages: { flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 4 },
   emptyMessages: { textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, marginTop: 40 },
+  jumpBtn: { position: 'absolute', bottom: 72, right: 16, zIndex: 50, background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 10px rgba(0,0,0,0.35)', fontFamily: 'inherit' },
   dateSep: { textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', margin: '12px 0 4px', fontWeight: 500 },
   msg: { display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 },
   senderAvatar: { width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, marginTop: 2 },
