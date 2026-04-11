@@ -153,11 +153,19 @@ export default function App() {
       loadLanPeers()
       loadP2pPeers()
       loadChannels()
-      const interval = setInterval(() => {
+      // Периодическое обновление: пиры каждые 15 сек, контакты + чаты каждые 30 сек
+      const intervalFast = setInterval(() => {
         loadLanPeers()
         loadP2pPeers()
       }, 15000)
-      return () => clearInterval(interval)
+      const intervalSlow = setInterval(() => {
+        loadContacts()   // обновляем аватарки и статусы
+        loadChats()      // обновляем превью последних сообщений
+      }, 30000)
+      return () => {
+        clearInterval(intervalFast)
+        clearInterval(intervalSlow)
+      }
     }
   }, [page])
 

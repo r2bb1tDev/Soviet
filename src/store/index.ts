@@ -386,6 +386,8 @@ export const useStore = create<AppStore>((set, get) => ({
   setActiveChat: (chat) => {
     set({ activeChat: chat, messages: [], decryptedMessages: {}, reactions: {} })
     if (chat && chat.id > 0) get().loadMessages(chat.id)
+    // Обновляем контакты при переходе в чат — синхронизация аватарок
+    get().loadContacts()
   },
   loadMessages: async (chatId) => {
     const messages = await invoke<Message[]>('get_messages', { chatId, limit: 50 })
@@ -485,6 +487,12 @@ export const useStore = create<AppStore>((set, get) => ({
   },
   deleteMessage: async (msgId, chatId) => {
     await invoke('delete_message_cmd', { msgId, chatId })
+    // Обновляем preview в сайдбаре после удаления
+    set(s => ({
+      messages: s.messages.map(m => m.id === msgId ? { ...m, is_deleted: true } : m),
+      decryptedMessages: { ...s.decryptedMessages, [msgId]: '[Сообщение удалено]' },
+    }))
+    get().loadChats()
   },
   updateReaction: (msgId, senderKey, emoji, action) => {
     set(s => {
@@ -512,6 +520,8 @@ export const useStore = create<AppStore>((set, get) => ({
       messages: s.messages.map(m => m.id === msgId ? { ...m, is_deleted: true } : m),
       decryptedMessages: { ...s.decryptedMessages, [msgId]: '[Сообщение удалено]' },
     }))
+    // Перезагружаем чаты чтобы обновить preview в сайдбаре
+    get().loadChats()
   },
 
   typingUsers: {},

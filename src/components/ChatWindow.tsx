@@ -855,6 +855,43 @@ function renderMessageText(text: string): React.ReactNode {
   return <>{nodes}</>
 }
 
+// ─── URL helper ───────────────────────────────────────────────────────────────
+
+const URL_RE = /(https?:\/\/[^\s<>"')\]]+)/g
+
+async function openUrl(url: string) {
+  try {
+    const { open } = await import('@tauri-apps/plugin-shell')
+    await open(url)
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+function renderWithLinks(text: string, baseKey: string | number): React.ReactNode[] {
+  const parts = text.split(URL_RE)
+  return parts.map((part, i) => {
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a
+          key={`${baseKey}-u${i}`}
+          href="#"
+          style={{
+            color: 'var(--text-link, var(--accent))',
+            textDecoration: 'underline',
+            cursor: 'pointer',
+            wordBreak: 'break-all',
+          }}
+          onClick={e => { e.preventDefault(); e.stopPropagation(); openUrl(part) }}
+        >
+          {part}
+        </a>
+      )
+    }
+    return <span key={`${baseKey}-t${i}`} style={{ whiteSpace: 'pre-wrap' }}>{part}</span>
+  })
+}
+
 function renderInlineCode(text: string, baseKey: number): React.ReactNode[] {
   const parts = text.split(/(`[^`]+`)/g)
   return parts.map((part, i) => {
@@ -868,7 +905,8 @@ function renderInlineCode(text: string, baseKey: number): React.ReactNode[] {
         </code>
       )
     }
-    return <span key={baseKey + '-' + i} style={{ whiteSpace: 'pre-wrap' }}>{part}</span>
+    // Detect and linkify URLs within plain text segments
+    return <span key={baseKey + '-' + i}>{renderWithLinks(part, `${baseKey}-${i}`)}</span>
   })
 }
 

@@ -597,30 +597,59 @@ function ForwardModal({ msg, onClose }: { msg: NostrMessage; onClose: () => void
   const { contacts, sendMessage } = useStore()
   const { text, media } = parseChannelContent(msg.content)
   const preview = media ? `📎 [медиа] ${text}` : text
+  const [sending, setSending] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filtered = contacts.filter(c =>
+    (c.local_alias ?? c.nickname).toLowerCase().includes(search.toLowerCase())
+  )
 
   const send = async (pk: string) => {
-    await sendMessage(pk, `📤 Переслано:\n─────────────────────\n${preview}`)
-    onClose()
+    if (sending) return
+    setSending(true)
+    try {
+      await sendMessage(pk, `📤 Переслано:\n─────────────────────\n${preview}`)
+      onClose()
+    } catch (e) {
+      console.error('[forward] ошибка отправки:', e)
+      // Закрываем в любом случае чтобы не зависнуть
+      onClose()
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
     <div style={fw.overlay} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div style={fw.modal} className="fade-in">
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-          <span style={{ fontWeight: 600 }}>📤 Переслать</span>
-          <button className="btn-icon" onClick={onClose}>✕</button>
+          <span style={{ fontWeight: 600 }}>📤 Переслать в чат</span>
+          <button className="btn-icon" onClick={onClose} disabled={sending}>✕</button>
         </div>
         <div style={fw.preview}>{preview.slice(0, 120)}{preview.length > 120 ? '…' : ''}</div>
+        <input
+          style={{ width: '100%', marginBottom: 8, boxSizing: 'border-box' }}
+          placeholder="Поиск контактов..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          autoFocus
+        />
         <div style={fw.list}>
-          {contacts.length === 0 && (
+          {filtered.length === 0 && (
             <div style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: '16px 0' }}>
-              Нет контактов
+              {contacts.length === 0 ? 'Нет контактов' : 'Контакты не найдены'}
             </div>
           )}
-          {contacts.map(c => (
-            <button key={c.public_key} style={fw.contact} onClick={() => send(c.public_key)}>
+          {filtered.map(c => (
+            <button
+              key={c.public_key}
+              style={{ ...fw.contact, opacity: sending ? 0.5 : 1 }}
+              onClick={() => send(c.public_key)}
+              disabled={sending}
+            >
               <div style={fw.avatar}>{(c.local_alias || c.nickname || '?')[0].toUpperCase()}</div>
               <span style={{ fontSize: 14 }}>{c.local_alias ?? c.nickname}</span>
+              {sending && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>…</span>}
             </button>
           ))}
         </div>
@@ -1080,6 +1109,34 @@ function renderChannelText(text: string): React.ReactNode {
   return <>{nodes}</>
 }
 
+const CH_URL_RE = /(https?:\/\/[^\s<>"')\]]+)/g
+
+async function openChannelUrl(url: string) {
+  try {
+    const { open } = await import('@tauri-apps/plugin-shell')
+    await open(url)
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+function linkifyText(text: string, baseKey: string | number): React.ReactNode[] {
+  const parts = text.split(CH_URL_RE)
+  return parts.map((part, i) => {
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a
+          key={`${baseKey}-u${i}`}
+          href="#"
+          style={{ color: 'var(--text-link, var(--accent))', textDecoration: 'underline', cursor: 'pointer', wordBreak: 'break-all' }}
+          onClick={e => { e.preventDefault(); e.stopPropagation(); openChannelUrl(part) }}
+        >{part}</a>
+      )
+    }
+    return <span key={`${baseKey}-t${i}`} style={{ whiteSpace: 'pre-wrap' }}>{part}</span>
+  })
+}
+
 function splitInlineCode(text: string, baseKey: number): React.ReactNode[] {
   return text.split(/(`[^`]+`)/g).map((part, i) => {
     if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
@@ -1088,7 +1145,7 @@ function splitInlineCode(text: string, baseKey: number): React.ReactNode[] {
         padding: '1px 4px', fontFamily: 'monospace', fontSize: 12,
       }}>{part.slice(1, -1)}</code>
     }
-    return <span key={`${baseKey}-${i}`} style={{ whiteSpace: 'pre-wrap' }}>{part}</span>
+    return <span key={`${baseKey}-${i}`}>{linkifyText(part, `${baseKey}-${i}`)}</span>
   })
 }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useStore } from '../store'
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
@@ -8,23 +8,80 @@ import CreateChannelModal from '../components/CreateChannelModal'
 import CreateGroupModal from '../components/CreateGroupModal'
 import BearLogo from '../components/BearLogo'
 
+const SIDEBAR_MIN = 180
+const SIDEBAR_MAX = 420
+const SIDEBAR_DEFAULT = 260
+
 export default function Main() {
   const { activeChat, activeChannel } = useStore()
   const [addContactPrefill, setAddContactPrefill] = useState<{ pk?: string; nick?: string } | null>(null)
   const [showCreateChannel, setShowCreateChannel] = useState(false)
   const [showCreateGroup, setShowCreateGroup] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const stored = localStorage.getItem('sidebarWidth')
+    return stored ? Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, parseInt(stored))) : SIDEBAR_DEFAULT
+  })
+  const [isDragging, setIsDragging] = useState(false)
+  const widthRef = useRef(sidebarWidth)
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = widthRef.current
+    setIsDragging(true)
+
+    const onMove = (me: MouseEvent) => {
+      const newW = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, startW + me.clientX - startX))
+      widthRef.current = newW
+      setSidebarWidth(newW)
+    }
+    const onUp = () => {
+      setIsDragging(false)
+      localStorage.setItem('sidebarWidth', String(widthRef.current))
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
+  const handleDividerDblClick = useCallback(() => {
+    widthRef.current = SIDEBAR_DEFAULT
+    setSidebarWidth(SIDEBAR_DEFAULT)
+    localStorage.setItem('sidebarWidth', String(SIDEBAR_DEFAULT))
+  }, [])
 
   const openAddContact = (prefill?: { pk?: string; nick?: string }) => {
     setAddContactPrefill(prefill ?? {})
   }
 
   return (
-    <div style={s.root}>
-      <Sidebar
-        onAddContact={openAddContact}
-        onAddChannel={() => setShowCreateChannel(true)}
-        onCreateGroup={() => setShowCreateGroup(true)}
-      />
+    <div style={{ ...s.root, cursor: isDragging ? 'col-resize' : 'default' }}>
+      <div style={{ width: sidebarWidth, flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <Sidebar
+          onAddContact={openAddContact}
+          onAddChannel={() => setShowCreateChannel(true)}
+          onCreateGroup={() => setShowCreateGroup(true)}
+        />
+      </div>
+
+      {/* Drag handle */}
+      <div
+        style={{
+          width: 4, flexShrink: 0, cursor: 'col-resize', position: 'relative', zIndex: 10,
+          background: isDragging ? 'var(--accent)' : 'transparent',
+          transition: 'background 0.15s',
+        }}
+        onMouseDown={handleDividerMouseDown}
+        onDoubleClick={handleDividerDblClick}
+        title="Перетащите для изменения ширины · Двойной клик — сброс"
+      >
+        <div style={{
+          position: 'absolute', top: 0, bottom: 0, left: 0, right: 0,
+          borderLeft: '1px solid var(--border)',
+        }} />
+      </div>
+
       <div style={s.chat}>
         {activeChannel
           ? <ChannelWindow />
