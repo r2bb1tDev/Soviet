@@ -103,6 +103,9 @@ export default function App() {
         e.preventDefault()
         window.dispatchEvent(new CustomEvent('soviet:new-chat'))
       }
+      if (e.key === 'Escape') {
+        window.dispatchEvent(new CustomEvent('soviet:escape'))
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)

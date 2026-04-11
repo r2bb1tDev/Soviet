@@ -679,6 +679,18 @@ export default function ChannelWindow() {
   const [chIsAtBottom, setChIsAtBottom] = useState(true)
   const [chMissed, setChMissed] = useState(0)
 
+  // Escape — закрыть поповеры
+  useEffect(() => {
+    const handler = () => {
+      setCtxMenu(null)
+      setEmojiPickerFor(null)
+      setReplyTo(null)
+      setEditingId(null)
+    }
+    window.addEventListener('soviet:escape', handler)
+    return () => window.removeEventListener('soviet:escape', handler)
+  }, [])
+
   useEffect(() => {
     if (isAtBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })

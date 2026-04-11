@@ -123,6 +123,19 @@ export default function ChatWindow() {
 
   const isTyping = activeChat?.peer_key ? (typingUsers[activeChat.peer_key] ?? false) : false
 
+  // Escape — закрыть все поповеры/режимы
+  useEffect(() => {
+    const handler = () => {
+      setShowEmoji(false)
+      setContextMenu(null)
+      setReplyTo(null)
+      setEditingId(null)
+      setReactionPickerMsgId(null)
+    }
+    window.addEventListener('soviet:escape', handler)
+    return () => window.removeEventListener('soviet:escape', handler)
+  }, [])
+
   // Автоскролл — только если уже внизу
   useEffect(() => {
     if (messages.length === 0) return

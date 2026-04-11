@@ -62,6 +62,17 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     window.addEventListener('soviet:new-chat', handler)
     return () => window.removeEventListener('soviet:new-chat', handler)
   }, [])
+
+  // Escape — закрыть модалки
+  useEffect(() => {
+    const handler = () => {
+      setShowUserSearch(false)
+      setShowRequest(false)
+      setChannelCtxMenu(null)
+    }
+    window.addEventListener('soviet:escape', handler)
+    return () => window.removeEventListener('soviet:escape', handler)
+  }, [])
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current)
     if (sidebarSearch.trim().length < 2) { clearSearch(); return }
