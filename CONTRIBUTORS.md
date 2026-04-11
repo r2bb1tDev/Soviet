@@ -1,4 +1,4 @@
-# Contributors
+# Участники проекта
 
 Спасибо всем, кто вносит вклад в Soviet Messenger! 🐻
 
