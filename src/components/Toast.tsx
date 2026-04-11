@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useStore, type ToastItem } from '../store'
 
 export default function ToastContainer() {
@@ -31,13 +31,30 @@ export default function ToastContainer() {
   )
 }
 
+const TOAST_DURATION = 5000
+
 function ToastItem({ toast, onClick, onClose }: {
   toast: ToastItem
   onClick: () => void
   onClose: () => void
 }) {
+  const barRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
-    const timer = setTimeout(onClose, 5000)
+    const timer = setTimeout(onClose, TOAST_DURATION)
+    // Animate progress bar
+    if (barRef.current) {
+      barRef.current.style.transition = 'none'
+      barRef.current.style.width = '100%'
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (barRef.current) {
+            barRef.current.style.transition = `width ${TOAST_DURATION}ms linear`
+            barRef.current.style.width = '0%'
+          }
+        })
+      })
+    }
     return () => clearTimeout(timer)
   }, [])
 
@@ -48,9 +65,11 @@ function ToastItem({ toast, onClick, onClose }: {
     success: '✓',
   }[toast.type]
 
+  const accentColor = toast.type === 'error' ? 'var(--busy)' : 'var(--accent)'
+
   return (
     <div
-      style={s.toast}
+      style={{ ...s.toast, borderLeft: `3px solid ${accentColor}` }}
       onClick={onClick}
       className="fade-in"
     >
@@ -65,6 +84,9 @@ function ToastItem({ toast, onClick, onClose }: {
       >
         ×
       </button>
+      <div style={s.progressTrack}>
+        <div ref={barRef} style={{ ...s.progressBar, background: accentColor }} />
+      </div>
     </div>
   )
 }
@@ -81,6 +103,7 @@ const s: Record<string, React.CSSProperties> = {
     pointerEvents: 'none',
   },
   toast: {
+    position: 'relative',
     display: 'flex',
     alignItems: 'flex-start',
     gap: 10,
@@ -127,5 +150,17 @@ const s: Record<string, React.CSSProperties> = {
     padding: '0 2px',
     flexShrink: 0,
     borderRadius: 4,
+  },
+  progressTrack: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    height: 2,
+    background: 'var(--border)',
+    borderRadius: '0 0 12px 12px',
+  },
+  progressBar: {
+    height: '100%',
+    width: '100%',
+    borderRadius: '0 0 12px 0',
   },
 }
