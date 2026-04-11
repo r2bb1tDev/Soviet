@@ -950,7 +950,10 @@ export default function ChannelWindow() {
               placeholder={replyTo ? 'Комментарий...' : 'Сообщение в канал...'}
               value={text}
               onChange={e => setText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send() }
+              }}
               rows={1}
               maxLength={1000}
             />

@@ -371,6 +371,11 @@ export default function ChatWindow() {
       e.preventDefault()
       handleSend()
     }
+    // Ctrl+Enter — альтернативная отправка
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      handleSend()
+    }
     // ↑ — редактировать последнее своё сообщение (только если поле пустое)
     if (e.key === 'ArrowUp' && !text.trim()) {
       const lastOwn = [...messages].reverse().find(
