@@ -466,7 +466,7 @@ export default function ChatWindow() {
                 : isTyping
                   ? <span style={{ color: 'var(--online)', fontStyle: 'italic' }}>печатает...</span>
                   : contactForChat
-                    ? statusLabel(contactForChat.status, contactForChat.status_text)
+                    ? statusLabel(contactForChat.status, contactForChat.status_text, contactForChat.last_seen)
                     : activeChat?.peer_key
                       ? <span>{activeChat.peer_key.slice(0, 24)}…</span>
                       : <span>неизвестно</span>
@@ -1191,10 +1191,20 @@ function formatDate(ts: number): string {
   return d.toLocaleDateString('ru', { day: 'numeric', month: 'long' })
 }
 
-function statusLabel(status: string, text?: string | null): React.ReactNode {
+function statusLabel(status: string, text?: string | null, lastSeen?: number | null): React.ReactNode {
   if (text) return <span>{text}</span>
   const map: Record<string, string> = {
-    online: 'в сети', away: 'отошёл', busy: 'занят', offline: 'не в сети'
+    online: 'в сети', away: 'отошёл', na: 'недоступен', dnd: 'не беспокоить',
+    invisible: 'невидимка', offline: 'не в сети'
+  }
+  if (status === 'offline' && lastSeen) {
+    const diffMin = Math.floor((Date.now() / 1000 - lastSeen) / 60)
+    let label = ''
+    if (diffMin < 1) label = 'был в сети только что'
+    else if (diffMin < 60) label = `был в сети ${diffMin} мин назад`
+    else if (diffMin < 1440) label = `был в сети ${Math.floor(diffMin / 60)} ч назад`
+    else label = `был в сети ${Math.floor(diffMin / 1440)} д назад`
+    return <span style={{ color: 'var(--text-muted)' }}>{label}</span>
   }
   return (
     <span style={{ color: status === 'online' ? 'var(--online)' : undefined }}>
