@@ -25,6 +25,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 use crate::network::LanPacket;
+use crate::storage;
+use rusqlite::Connection as DbConnection;
 
 // ─── Bootstrap-узлы IPFS (IP-адреса, без DNS) ────────────────────────────────
 
@@ -120,6 +122,8 @@ pub fn start(
     private_key_bytes: [u8; 32],
     lan_tx: mpsc::UnboundedSender<(String, LanPacket)>,
     app: AppHandle,
+    db_path: String,
+    enc_key: [u8; 32],
 ) -> anyhow::Result<P2pHandle> {
     // 1. Конвертируем Ed25519 private key → libp2p Keypair
     let secret = libp2p::identity::ed25519::SecretKey::try_from_bytes(private_key_bytes)
@@ -151,6 +155,16 @@ pub fn start(
         {
             Ok(rt) => rt,
             Err(e) => { log::error!("P2P runtime failed: {}", e); return; }
+        };
+
+        // Открываем отдельное соединение с БД для репутации P2P-узлов
+        let rep_db = match storage::open(&db_path, &enc_key) {
+            Ok(c) => Arc::new(Mutex::new(c)),
+            Err(e) => {
+                log::warn!("P2P: cannot open reputation DB: {}", e);
+                // Продолжаем без репутационной системы — не критично
+                Arc::new(Mutex::new(DbConnection::open_in_memory().unwrap()))
+            }
         };
 
         rt.block_on(async move {
@@ -185,7 +199,7 @@ pub fn start(
                     event = swarm.next() => {
                         match event {
                             Some(e) => handle_swarm_event(
-                                e, &mut swarm, &peers_bg, &lan_tx, &app
+                                e, &mut swarm, &peers_bg, &lan_tx, &app, &rep_db
                             ),
                             None => break,
                         }
@@ -345,6 +359,7 @@ fn handle_swarm_event(
     peers: &Arc<Mutex<HashMap<String, P2pPeer>>>,
     lan_tx: &mpsc::UnboundedSender<(String, LanPacket)>,
     app: &AppHandle,
+    rep_db: &Arc<Mutex<DbConnection>>,
 ) {
     match event {
         // ── Сетевые события ──────────────────────────────────────────────────
@@ -528,23 +543,45 @@ fn handle_swarm_event(
         )) => {
             match message {
                 request_response::Message::Request { request, channel, .. } => {
-                    match serde_json::from_slice::<LanPacket>(&request.payload) {
-                        Ok(packet) => {
-                            let sender_pk = {
-                                let guard = peers.lock().unwrap();
-                                guard.get(&peer.to_string())
-                                    .and_then(|p| p.soviet_pk.clone())
-                                    .unwrap_or_default()
-                            };
-                            log::debug!("P2P: message from {}", sender_pk);
-                            lan_tx.send((sender_pk, packet)).ok();
+                    let peer_id_str = peer.to_string();
+
+                    // Sybil protection: проверяем бан до обработки пакета
+                    let is_banned = {
+                        if let Ok(db) = rep_db.lock() {
+                            storage::reputation_is_banned(&db, &peer_id_str)
+                        } else { false }
+                    };
+
+                    if is_banned {
+                        log::warn!("P2P: dropping message from banned peer {}", peer_id_str);
+                        swarm.behaviour_mut().rr.send_response(channel, SovietResponse { ok: false }).ok();
+                    } else {
+                        match serde_json::from_slice::<LanPacket>(&request.payload) {
+                            Ok(packet) => {
+                                let sender_pk = {
+                                    let guard = peers.lock().unwrap();
+                                    guard.get(&peer_id_str)
+                                        .and_then(|p| p.soviet_pk.clone())
+                                        .unwrap_or_default()
+                                };
+                                log::debug!("P2P: message from {}", sender_pk);
+                                // Записываем валидное сообщение в репутацию
+                                if let Ok(db) = rep_db.lock() {
+                                    let pk_opt = if sender_pk.is_empty() { None } else { Some(sender_pk.as_str()) };
+                                    storage::reputation_record_message(&db, &peer_id_str, pk_opt, true);
+                                }
+                                lan_tx.send((sender_pk, packet)).ok();
+                            }
+                            Err(e) => {
+                                log::warn!("P2P: invalid payload from {}: {}", peer_id_str, e);
+                                // Штрафуем за невалидный пакет
+                                if let Ok(db) = rep_db.lock() {
+                                    storage::reputation_record_message(&db, &peer_id_str, None, false);
+                                }
+                            }
                         }
-                        Err(e) => log::warn!("P2P: invalid payload from {}: {}", peer, e),
+                        swarm.behaviour_mut().rr.send_response(channel, SovietResponse { ok: true }).ok();
                     }
-                    swarm.behaviour_mut().rr.send_response(
-                        channel,
-                        SovietResponse { ok: true },
-                    ).ok();
                 }
                 request_response::Message::Response { .. } => {
                     log::debug!("P2P: delivery confirmed by {}", peer);

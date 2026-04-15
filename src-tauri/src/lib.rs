@@ -135,7 +135,11 @@ fn create_identity(
         if p2p_guard.is_none() {
             let pk_bytes = keypair.private_key_bytes();
             let tx = state.lan_tx.clone();
-            match p2p::start(pk_bytes, tx, app) {
+            let p2p_db_path = app.path().app_data_dir()
+                .map(|d| d.join("sovietmsg.db").to_string_lossy().to_string())
+                .unwrap_or_else(|_| "sovietmsg.db".to_string());
+            let p2p_enc_key = get_or_create_field_enc_key();
+            match p2p::start(pk_bytes, tx, app, p2p_db_path, p2p_enc_key) {
                 Ok(handle) => { *p2p_guard = Some(handle); }
                 Err(e) => log::error!("P2P start error: {}", e),
             }
@@ -201,7 +205,11 @@ fn import_keys(
         if p2p_guard.is_none() {
             let pk_bytes = keypair.private_key_bytes();
             let tx = state.lan_tx.clone();
-            match p2p::start(pk_bytes, tx, app) {
+            let p2p_db_path = app.path().app_data_dir()
+                .map(|d| d.join("sovietmsg.db").to_string_lossy().to_string())
+                .unwrap_or_else(|_| "sovietmsg.db".to_string());
+            let p2p_enc_key = get_or_create_field_enc_key();
+            match p2p::start(pk_bytes, tx, app, p2p_db_path, p2p_enc_key) {
                 Ok(handle) => { *p2p_guard = Some(handle); }
                 Err(e) => log::error!("P2P start error: {}", e),
             }
@@ -2010,7 +2018,7 @@ pub fn run() {
             let db_path_str = db_path.to_str().unwrap_or("sovietmsg.db");
             // Ключ для шифрования чувствительных полей (хранится в OS keyring)
             let enc_key = get_or_create_field_enc_key();
-            let conn = storage::open(db_path_str)
+            let conn = storage::open(db_path_str, &enc_key)
                 .expect("Cannot open database");
 
             // 2. Загружаем сохранённую идентичность
@@ -2052,7 +2060,7 @@ pub fn run() {
 
             // Open a second DB connection for Nostr (runs in separate thread)
             let n_db = Arc::new(std::sync::Mutex::new(
-                storage::open(db_path_str)
+                storage::open(db_path_str, &enc_key)
                     .expect("Cannot open nostr db connection")
             ));
             let nostr_handle = nostr::start(
@@ -2086,7 +2094,7 @@ pub fn run() {
             // 5b. Запускаем P2P mesh если есть keypair
             if let Some(sk_bytes) = p2p_sk {
                 let app_h = app.handle().clone();
-                match p2p::start(sk_bytes, tx, app_h) {
+                match p2p::start(sk_bytes, tx, app_h, db_path_str.to_string(), enc_key) {
                     Ok(handle) => {
                         let state: tauri::State<AppState> = app.state();
                         *state.p2p.lock().unwrap() = Some(handle);

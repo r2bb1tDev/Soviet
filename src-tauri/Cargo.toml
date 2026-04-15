@@ -35,7 +35,7 @@ rand = "0.8"
 bs58 = "0.5"
 
 # База данных
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 
 # Сеть — LAN UDP broadcast и TCP
 tokio = { version = "1", features = ["full"] }

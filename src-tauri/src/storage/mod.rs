@@ -4,6 +4,117 @@ use std::sync::Mutex;
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use chacha20poly1305::aead::{Aead, KeyInit};
 
+// ─── Peer reputation ─────────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PeerReputation {
+    pub peer_id:      String,
+    pub soviet_pk:    Option<String>,
+    pub score:        i64,
+    pub msg_count:    i64,
+    pub last_msg_at:  Option<i64>,
+    pub banned_until: Option<i64>,
+    pub updated_at:   i64,
+}
+
+pub fn reputation_is_banned(conn: &Connection, peer_id: &str) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let banned: i64 = conn.query_row(
+        "SELECT COALESCE(banned_until, 0) FROM peer_reputation WHERE peer_id=?1",
+        params![peer_id], |r| r.get(0),
+    ).unwrap_or(0);
+    banned > now
+}
+
+pub fn reputation_record_message(
+    conn: &Connection,
+    peer_id: &str,
+    soviet_pk: Option<&str>,
+    valid: bool,
+) {
+    let now = chrono::Utc::now().timestamp();
+    // Upsert — create row if not exists
+    conn.execute(
+        "INSERT INTO peer_reputation(peer_id, soviet_pk, score, msg_count, last_msg_at, updated_at)
+         VALUES(?1,?2,100,0,NULL,?3)
+         ON CONFLICT(peer_id) DO NOTHING",
+        params![peer_id, soviet_pk, now],
+    ).ok();
+
+    if valid {
+        // Check rate: if > 20 messages in the last 60s → penalise
+        let recent: i64 = conn.query_row(
+            "SELECT msg_count FROM peer_reputation WHERE peer_id=?1",
+            params![peer_id], |r| r.get(0),
+        ).unwrap_or(0);
+        let last: i64 = conn.query_row(
+            "SELECT COALESCE(last_msg_at, 0) FROM peer_reputation WHERE peer_id=?1",
+            params![peer_id], |r| r.get(0),
+        ).unwrap_or(0);
+        let (delta_score, reset_count) = if now - last < 60 && recent >= 20 {
+            // Flood — penalise
+            (-30_i64, false)
+        } else if now - last >= 60 {
+            (1_i64, true) // new window, reward
+        } else {
+            (1_i64, false)
+        };
+        if reset_count {
+            conn.execute(
+                "UPDATE peer_reputation SET score=MIN(200,score+?1), msg_count=1, last_msg_at=?2, updated_at=?2 WHERE peer_id=?3",
+                params![delta_score, now, peer_id],
+            ).ok();
+        } else {
+            conn.execute(
+                "UPDATE peer_reputation SET score=MIN(200,score+?1), msg_count=msg_count+1, last_msg_at=?2, updated_at=?2 WHERE peer_id=?3",
+                params![delta_score, now, peer_id],
+            ).ok();
+        }
+    } else {
+        // Invalid payload → heavy penalty
+        conn.execute(
+            "UPDATE peer_reputation SET score=score-20, updated_at=?1 WHERE peer_id=?2",
+            params![now, peer_id],
+        ).ok();
+    }
+
+    // Apply ban if score dropped below threshold
+    let score: i64 = conn.query_row(
+        "SELECT score FROM peer_reputation WHERE peer_id=?1",
+        params![peer_id], |r| r.get(0),
+    ).unwrap_or(100);
+    if score < 0 {
+        // 24-hour ban
+        conn.execute(
+            "UPDATE peer_reputation SET banned_until=?1, updated_at=?1 WHERE peer_id=?2",
+            params![now + 86400, peer_id],
+        ).ok();
+    } else if score < 20 {
+        // 1-hour ban
+        conn.execute(
+            "UPDATE peer_reputation SET banned_until=?1, updated_at=?1 WHERE peer_id=?2",
+            params![now + 3600, peer_id],
+        ).ok();
+    }
+}
+
+pub fn get_peer_reputations(conn: &Connection) -> anyhow::Result<Vec<PeerReputation>> {
+    let mut stmt = conn.prepare(
+        "SELECT peer_id, soviet_pk, score, msg_count, last_msg_at, banned_until, updated_at
+         FROM peer_reputation ORDER BY score ASC LIMIT 100"
+    )?;
+    let rows = stmt.query_map([], |r| Ok(PeerReputation {
+        peer_id:      r.get(0)?,
+        soviet_pk:    r.get(1)?,
+        score:        r.get(2)?,
+        msg_count:    r.get(3)?,
+        last_msg_at:  r.get(4)?,
+        banned_until: r.get(5)?,
+        updated_at:   r.get(6)?,
+    }))?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
 pub struct Db(pub Mutex<Connection>);
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -88,11 +199,62 @@ pub struct OutboxItem {
     pub updated_at: i64,
 }
 
-pub fn open(path: &str) -> anyhow::Result<Connection> {
+/// Открывает (или создаёт) зашифрованную SQLCipher БД.
+/// `enc_key` — 32-байтовый ключ из OS keyring.
+pub fn open(path: &str, enc_key: &[u8; 32]) -> anyhow::Result<Connection> {
+    // Если БД ещё не зашифрована — сначала мигрируем
+    migrate_to_encrypted(path, enc_key)?;
+
     let conn = Connection::open(path)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+    // PRAGMA key должен быть первым оператором после открытия соединения
+    let key_hex = hex::encode(enc_key);
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";\nPRAGMA journal_mode=WAL;\nPRAGMA foreign_keys=ON;", key_hex))?;
     migrate(&conn)?;
     Ok(conn)
+}
+
+/// Однократная миграция незашифрованной БД в SQLCipher.
+/// Определяет тип БД: если уже зашифрована — пропускает.
+fn migrate_to_encrypted(path: &str, enc_key: &[u8; 32]) -> anyhow::Result<()> {
+    use std::path::Path;
+
+    // Если файла нет — новая БД, будет создана сразу зашифрованной
+    if !Path::new(path).exists() {
+        return Ok(());
+    }
+
+    // Проверяем: можно ли открыть без ключа (незашифрованная)?
+    let test = Connection::open(path)?;
+    let is_plain = test.execute_batch("SELECT count(*) FROM sqlite_master;").is_ok();
+    drop(test);
+
+    if !is_plain {
+        // Уже зашифрована — ничего не делаем
+        return Ok(());
+    }
+
+    log::info!("SQLCipher: migrating plaintext DB to encrypted...");
+
+    // Создаём зашифрованную копию рядом
+    let enc_path = format!("{}.enc", path);
+    let key_hex = hex::encode(enc_key);
+
+    let old = Connection::open(path)?;
+    old.execute_batch(&format!(
+        "ATTACH DATABASE '{}' AS encrypted KEY \"x'{}'\";\n\
+         SELECT sqlcipher_export('encrypted');\n\
+         DETACH DATABASE encrypted;",
+        enc_path, key_hex
+    ))?;
+    drop(old);
+
+    // Делаем резервную копию и заменяем оригинал
+    let bak_path = format!("{}.bak", path);
+    std::fs::copy(path, &bak_path)?;
+    std::fs::rename(&enc_path, path)?;
+
+    log::info!("SQLCipher: migration done. Backup at {}", bak_path);
+    Ok(())
 }
 
 // ─── Application-level field encryption (ChaCha20-Poly1305) ──────────────────
@@ -257,6 +419,16 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
             reaction_event_id TEXT,
             created_at INTEGER NOT NULL,
             UNIQUE(event_id, reactor_pubkey, emoji)
+        );
+
+        CREATE TABLE IF NOT EXISTS peer_reputation (
+            peer_id      TEXT PRIMARY KEY,
+            soviet_pk    TEXT,
+            score        INTEGER DEFAULT 100,
+            msg_count    INTEGER DEFAULT 0,
+            last_msg_at  INTEGER,
+            banned_until INTEGER,
+            updated_at   INTEGER NOT NULL
         );
     ")?;
     // Add new columns to existing messages table (silently ignored if already present)

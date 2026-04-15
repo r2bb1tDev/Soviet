@@ -38,6 +38,7 @@ jobs:
           node-version: 20
           cache: npm
 
+      # ── Linux: системные зависимости ─────────────────────────────────────────
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-latest'
         run: |
@@ -46,8 +47,56 @@ jobs:
             build-essential curl wget libssl-dev libgtk-3-dev \
             libwebkit2gtk-4.1-dev librsvg2-dev patchelf pkg-config \
             libglib2.0-dev libgdk-pixbuf2.0-dev libcairo2-dev \
-            libpango1.0-dev libatk1.0-dev libayatana-appindicator3-dev
+            libpango1.0-dev libatk1.0-dev libayatana-appindicator3-dev \
+            perl
 
+      # ── Windows: Strawberry Perl (нужен для сборки OpenSSL/SQLCipher) ────────
+      - name: Install Strawberry Perl (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.38'
+          distribution: Strawberry
+
+      # ── Windows: импорт сертификата подписи ─────────────────────────────────
+      - name: Import Windows code signing certificate
+        if: matrix.platform == 'windows-latest' && env.WINDOWS_CERTIFICATE != ''
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: powershell
+        run: |
+          $certBytes = [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          $certPath  = "$env:TEMP\soviet_signing.pfx"
+          [System.IO.File]::WriteAllBytes($certPath, $certBytes)
+          Import-PfxCertificate -FilePath $certPath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password (ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force)
+          Remove-Item $certPath
+          $thumb = (Get-ChildItem Cert:\CurrentUser\My | Sort-Object NotAfter -Descending | Select-Object -First 1).Thumbprint
+          echo "WINDOWS_CERT_THUMBPRINT=$thumb" >> $env:GITHUB_ENV
+
+      # ── macOS: импорт сертификата разработчика в keychain ───────────────────
+      - name: Import macOS signing certificate
+        if: startsWith(matrix.platform, 'macos') && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          # Создаём временный keychain
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" build.keychain
+          # Импортируем сертификат
+          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$APPLE_KEYCHAIN_PASSWORD" build.keychain
+          rm /tmp/certificate.p12
+
+      # ── Rust toolchain ───────────────────────────────────────────────────────
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -61,12 +110,21 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # ── Сборка и релиз ───────────────────────────────────────────────────────
       - name: Build and release
         uses: tauri-apps/tauri-action@v0.6.1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          GITHUB_TOKEN:                      ${{ secrets.GITHUB_TOKEN }}
+          # Подпись обновлений (updater)
+          TAURI_SIGNING_PRIVATE_KEY:         ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Windows: подпись бинаря (через signtool)
+          TAURI_SIGN_WITH_THUMBPRINT:        ${{ env.WINDOWS_CERT_THUMBPRINT }}
+          # macOS: нотаризация через Apple
+          APPLE_ID:                          ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD:                    ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID:                     ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY:            ${{ secrets.APPLE_SIGNING_IDENTITY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Soviet v__VERSION__'

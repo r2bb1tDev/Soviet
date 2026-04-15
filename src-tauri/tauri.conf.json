@@ -40,7 +40,13 @@
     "windows": {
       "digestAlgorithm": "sha256",
       "certificateThumbprint": null,
-      "timestampUrl": ""
+      "timestampUrl": "http://timestamp.digicert.com"
+    },
+    "macOS": {
+      "signingIdentity": null,
+      "entitlements": null,
+      "exceptionDomain": null,
+      "providerShortName": null
     }
   },
   "plugins": {
