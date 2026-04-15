@@ -211,7 +211,7 @@ interface AppStore {
   loadChats: () => Promise<void>
   setActiveChat: (chat: Chat | null) => void
   loadMessages: (chatId: number) => Promise<void>
-  loadMoreMessages: (chatId: number, beforeTs: number) => Promise<void>
+  loadMoreMessages: (chatId: number, beforeTs: number) => Promise<number>
   sendMessage: (recipientPk: string, text: string, replyToId?: number | null) => Promise<void>
   decryptMessage: (msg: Message) => Promise<string>
   addReaction: (msgId: number, chatId: number, emoji: string) => Promise<void>
@@ -424,7 +424,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
   loadMoreMessages: async (chatId, beforeTs) => {
     const more = await invoke<Message[]>('get_messages', { chatId, limit: 50, before: beforeTs })
-    if (!more || more.length === 0) return
+    if (!more || more.length === 0) return 0
     set(s => {
       const existingIds = new Set(s.messages.map(m => m.id))
       const merged = [...more.filter(m => !existingIds.has(m.id)), ...s.messages]
@@ -446,6 +446,7 @@ export const useStore = create<AppStore>((set, get) => ({
       }
     }))
     set({ decryptedMessages: { ...st.decryptedMessages, ...Object.fromEntries(decryptedPairs) } })
+    return more.length
   },
   sendMessage: async (recipientPk, text, replyToId) => {
     await invoke('send_message', { recipientPk, text, replyTo: replyToId ?? null })

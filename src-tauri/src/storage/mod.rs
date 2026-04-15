@@ -897,6 +897,15 @@ pub fn has_unread_messages(conn: &Connection) -> anyhow::Result<bool> {
     Ok(count > 0)
 }
 
+pub fn get_total_unread_count(conn: &Connection) -> anyhow::Result<u32> {
+    let count: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(unread_count), 0) FROM chats",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(count.max(0) as u32)
+}
+
 // ─── Groups ──────────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

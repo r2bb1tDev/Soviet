@@ -417,32 +417,65 @@ fn get_messages(
 fn mark_read(chat_id: i64, state: State<AppState>, app: AppHandle) -> Result<(), String> {
     let db = state.db.0.lock().unwrap();
     storage::mark_messages_read(&db, chat_id).map_err(|e| e.to_string())?;
-    // Сбрасываем иконку трея на idle если нет непрочитанных
-    let has_unread = storage::has_unread_messages(&db).unwrap_or(false);
+    // Обновляем счётчик в трее
+    let unread = storage::get_total_unread_count(&db).unwrap_or(0);
 
     // Ищем peer_key чата чтобы отправить read receipt
     let peer_key = storage::get_chat_peer_key(&db, chat_id).ok().flatten();
     drop(db);
 
-    if !has_unread {
-        if let Some(tray) = app.tray_by_id("main-tray") {
-            if let Ok(icon) = tauri::image::Image::from_bytes(TRAY_IDLE_PNG) {
-                tray.set_icon(Some(icon)).ok();
-            }
-        }
-    }
+    update_tray_badge(&app, unread);
 
     // Отправляем read receipt собеседнику (чтобы у него ✓✓ стало синим)
+    // Пробуем LAN → P2P → Nostr (тот же порядок что и при отправке сообщений)
     if let Some(peer_pk) = peer_key {
         let id_guard = state.identity.lock().unwrap();
-        if let Some(ident) = id_guard.as_ref() {
-            let my_pk = ident.public_key.clone();
-            drop(id_guard);
+        let my_pk = match id_guard.as_ref() {
+            Some(i) => i.public_key.clone(),
+            None => return Ok(()),
+        };
+        drop(id_guard);
+
+        let packet = network::make_read_receipt_packet(&my_pk, &peer_pk);
+
+        // 1. LAN
+        let sent = {
             let lan_guard = state.lan.lock().unwrap();
             if let Some(lan) = lan_guard.as_ref() {
                 if lan.is_peer_online(&peer_pk) {
-                    let packet = network::make_read_receipt_packet(&my_pk, &peer_pk);
-                    lan.send_to_peer(&peer_pk, &packet).ok();
+                    lan.send_to_peer(&peer_pk, &packet).is_ok()
+                } else { false }
+            } else { false }
+        };
+
+        // 2. P2P mesh
+        let sent = if !sent {
+            let p2p_guard = state.p2p.lock().unwrap();
+            if let Some(p2p) = p2p_guard.as_ref() {
+                if let Some(peer_id) = p2p.is_peer_online(&peer_pk) {
+                    let data = serde_json::to_vec(&packet).unwrap_or_default();
+                    p2p.cmd_tx.try_send(p2p::P2pCmd::SendMessage { peer_id, data }).is_ok()
+                } else { false }
+            } else { false }
+        } else { true };
+
+        // 3. Nostr DM fallback
+        if !sent {
+            let kp_guard = state.keypair.lock().unwrap();
+            if let Some(kp) = kp_guard.as_ref() {
+                if let Ok(payload_bytes) = serde_json::to_vec(&packet) {
+                    if let Ok(encrypted) = crypto::encrypt_message(kp, &peer_pk, &payload_bytes) {
+                        drop(kp_guard);
+                        if let Ok(enc_json) = serde_json::to_string(&encrypted) {
+                            let nostr_guard = state.nostr.lock().unwrap();
+                            if let Some(n) = nostr_guard.as_ref() {
+                                n.cmd_tx.try_send(nostr::NostrCmd::SendDm {
+                                    recipient_soviet_pk: peer_pk,
+                                    encrypted_json: enc_json,
+                                }).ok();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -671,7 +704,7 @@ fn cancel_outbox(msg_id: i64, state: State<AppState>) -> Result<(), String> {
 
 // ─── Входящие LAN-пакеты ─────────────────────────────────────────────────────
 
-fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
+pub fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
     match packet.packet_type.as_str() {
         "message" => {
             if let Ok(encrypted) = serde_json::from_value::<crypto::EncryptedMessage>(packet.payload.clone()) {
@@ -765,12 +798,11 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                             .show()
                             .ok();
 
-                        // Иконка трея — "медведь с конвертом"
-                        if let Some(tray) = app.tray_by_id("main-tray") {
-                            if let Ok(icon) = tauri::image::Image::from_bytes(TRAY_MSG_PNG) {
-                                tray.set_icon(Some(icon)).ok();
-                            }
-                        }
+                        // Иконка трея + счётчик непрочитанных
+                        let db3 = state.db.0.lock().unwrap();
+                        let unread = storage::get_total_unread_count(&db3).unwrap_or(1);
+                        drop(db3);
+                        update_tray_badge(&app, unread);
                     } else {
                         drop(db);
                     }
@@ -943,6 +975,7 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                     };
                     if let Ok(msg_id) = storage::save_message_with_preview(&db, &msg, &preview, &plain) {
                         storage::increment_unread(&db, chat_id).ok();
+                        let unread = storage::get_total_unread_count(&db).unwrap_or(1);
                         drop(db);
                         app.emit("group-message", serde_json::json!({
                             "chat_id": chat_id,
@@ -952,6 +985,7 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                             "sender_name": sender_name,
                             "preview": plain,
                         })).ok();
+                        update_tray_badge(&app, unread);
                     } else { drop(db); }
                 } else { drop(db); }
             }
@@ -1067,6 +1101,55 @@ fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
     }
 }
 
+// ─── Universal peer send helper (LAN → P2P → Nostr) ─────────────────────────
+
+/// Отправить LanPacket собеседнику через любой доступный транспорт.
+/// Порядок: LAN → P2P mesh → Nostr DM (fallback).
+/// Возвращает true если отправлено хотя бы через один канал.
+fn send_packet_to_peer(state: &tauri::State<AppState>, recipient_pk: &str, packet: &network::LanPacket) -> bool {
+    // 1. LAN
+    let sent = {
+        let lan = state.lan.lock().unwrap();
+        if let Some(lan) = lan.as_ref() {
+            if lan.is_peer_online(recipient_pk) {
+                lan.send_to_peer(recipient_pk, packet).is_ok()
+            } else { false }
+        } else { false }
+    };
+    if sent { return true; }
+
+    // 2. P2P mesh
+    let sent = {
+        let p2p = state.p2p.lock().unwrap();
+        if let Some(p2p) = p2p.as_ref() {
+            if let Some(peer_id) = p2p.is_peer_online(recipient_pk) {
+                let data = serde_json::to_vec(packet).unwrap_or_default();
+                p2p.cmd_tx.try_send(p2p::P2pCmd::SendMessage { peer_id, data }).is_ok()
+            } else { false }
+        } else { false }
+    };
+    if sent { return true; }
+
+    // 3. Nostr DM — шифруем весь пакет как байты
+    let kp_guard = state.keypair.lock().unwrap();
+    if let Some(kp) = kp_guard.as_ref() {
+        let packet_bytes = serde_json::to_vec(packet).unwrap_or_default();
+        if let Ok(encrypted) = crypto::encrypt_message(kp, recipient_pk, &packet_bytes) {
+            drop(kp_guard);
+            if let Ok(enc_json) = serde_json::to_string(&encrypted) {
+                let nostr = state.nostr.lock().unwrap();
+                if let Some(n) = nostr.as_ref() {
+                    return n.cmd_tx.try_send(nostr::NostrCmd::SendDm {
+                        recipient_soviet_pk: recipient_pk.to_string(),
+                        encrypted_json: enc_json,
+                    }).is_ok();
+                }
+            }
+        }
+    }
+    false
+}
+
 // ─── Outbox retry worker ──────────────────────────────────────────────────────
 
 fn outbox_backoff_seconds(attempts: i64) -> i64 {
@@ -1136,32 +1219,37 @@ fn try_send_outbox_item(_app: &AppHandle, state: &tauri::State<AppState>, item: 
             Ok(true)
         }
         "group" => {
-            // For MVP: only retry group delivery via LAN (online members).
+            // payload = plaintext; re-encrypt per member and send via LAN → P2P → Nostr
             let group_id = item.target.clone();
-            let enc_json = item.payload.clone(); // already an encrypted JSON string per recipient in send_group_message path
+            let plaintext = item.payload.clone();
 
             let db = state.db.0.lock().unwrap();
             let members = storage::get_group_members(&db, &group_id).map_err(|e| e.to_string())?;
             drop(db);
 
-            let lan_guard = state.lan.lock().unwrap();
-            if let Some(lan) = lan_guard.as_ref() {
+            // Build per-member encrypted packets while holding keypair lock
+            let packets: Vec<(String, network::LanPacket)> = {
                 let kp_guard = state.keypair.lock().unwrap();
-                let kp = kp_guard.as_ref().ok_or("No keypair")?;
-                let mut any = false;
-                for m in &members {
-                    if m.public_key == my_pk { continue; }
-                    if !lan.is_peer_online(&m.public_key) { continue; }
-                    // payload here is plaintext; re-encrypt per member
-                    if let Ok(enc) = crypto::encrypt_message(kp, &m.public_key, enc_json.as_bytes()) {
-                        let per = serde_json::to_string(&enc).unwrap_or_default();
-                        let packet = network::make_group_message_packet(&my_pk, &group_id, &per);
-                        if lan.send_to_peer(&m.public_key, &packet).is_ok() { any = true; }
-                    }
-                }
-                return Ok(any);
+                if let Some(kp) = kp_guard.as_ref() {
+                    members.iter()
+                        .filter(|m| m.public_key != my_pk)
+                        .filter_map(|m| {
+                            crypto::encrypt_message(kp, &m.public_key, plaintext.as_bytes()).ok()
+                                .and_then(|enc| serde_json::to_string(&enc).ok())
+                                .map(|enc_json| {
+                                    let pkt = network::make_group_message_packet(&my_pk, &group_id, &enc_json);
+                                    (m.public_key.clone(), pkt)
+                                })
+                        })
+                        .collect()
+                } else { vec![] }
+            };
+
+            let mut any = false;
+            for (peer_pk, packet) in &packets {
+                if send_packet_to_peer(state, peer_pk, packet) { any = true; }
             }
-            Ok(false)
+            Ok(any)
         }
         _ => Ok(false),
     }
@@ -1259,14 +1347,9 @@ fn send_file(
     storage::enqueue_outbox(&db, "file", &recipient_pk, msg_id, &msg.content, content_type).ok();
     drop(db);
 
-    // Отправляем по LAN
-    let lan_guard = state.lan.lock().unwrap();
-    if let Some(lan) = lan_guard.as_ref() {
-        if lan.is_peer_online(&recipient_pk) {
-            let packet = network::make_message_packet(&my_pk, &encrypted);
-            lan.send_to_peer(&recipient_pk, &packet).ok();
-        }
-    }
+    // Отправляем LAN → P2P → Nostr
+    let packet = network::make_message_packet(&my_pk, &encrypted);
+    send_packet_to_peer(&state, &recipient_pk, &packet);
 
     app.emit("message-sent", serde_json::json!({ "chat_id": chat_id, "msg_id": msg_id })).ok();
     Ok(msg_id)
@@ -1309,15 +1392,10 @@ fn create_group(
     }
     drop(db);
 
-    // Рассылаем приглашение онлайн-участникам
-    let lan_guard = state.lan.lock().unwrap();
-    if let Some(lan) = lan_guard.as_ref() {
-        let packet = network::make_group_invite_packet(&my_pk, &group_id, &name, &all_pks);
-        for pk in &member_pks {
-            if lan.is_peer_online(pk) {
-                lan.send_to_peer(pk, &packet).ok();
-            }
-        }
+    // Рассылаем приглашение через LAN → P2P → Nostr
+    let packet = network::make_group_invite_packet(&my_pk, &group_id, &name, &all_pks);
+    for pk in &member_pks {
+        send_packet_to_peer(&state, pk, &packet);
     }
 
     Ok(group_id)
@@ -1363,22 +1441,25 @@ fn send_group_message(
     storage::enqueue_outbox(&db, "group", &group_id, msg_id, &text, "text").ok();
     drop(db);
 
-    // Шлём каждому участнику зашифрованно
-    let lan_guard = state.lan.lock().unwrap();
-    if let Some(lan) = lan_guard.as_ref() {
-        let kp2 = state.keypair.lock().unwrap();
-        if let Some(kp) = kp2.as_ref() {
-            for m in &members {
-                if m.public_key == my_pk { continue; }
-                if lan.is_peer_online(&m.public_key) {
-                    if let Ok(enc) = crypto::encrypt_message(kp, &m.public_key, text.as_bytes()) {
-                        let enc_json = serde_json::to_string(&enc).unwrap_or_default();
-                        let packet = network::make_group_message_packet(&my_pk, &group_id, &enc_json);
-                        lan.send_to_peer(&m.public_key, &packet).ok();
-                    }
-                }
-            }
-        }
+    // Шифруем per-member заранее, затем отправляем через LAN → P2P → Nostr
+    let packets: Vec<(String, network::LanPacket)> = {
+        let kp_guard = state.keypair.lock().unwrap();
+        if let Some(kp) = kp_guard.as_ref() {
+            members.iter()
+                .filter(|m| m.public_key != my_pk)
+                .filter_map(|m| {
+                    crypto::encrypt_message(kp, &m.public_key, text.as_bytes()).ok()
+                        .and_then(|enc| serde_json::to_string(&enc).ok())
+                        .map(|enc_json| {
+                            let pkt = network::make_group_message_packet(&my_pk, &group_id, &enc_json);
+                            (m.public_key.clone(), pkt)
+                        })
+                })
+                .collect()
+        } else { vec![] }
+    };
+    for (peer_pk, packet) in &packets {
+        send_packet_to_peer(&state, peer_pk, packet);
     }
 
     Ok(())
@@ -1400,13 +1481,10 @@ fn leave_group(group_id: String, state: State<AppState>, app: AppHandle) -> Resu
         storage::remove_group_member(&db, &group_id, &my_pk).map_err(|e| e.to_string())?;
         (members, chat_id)
     };
-    let lan_guard = state.lan.lock().unwrap();
-    if let Some(lan) = lan_guard.as_ref() {
-        let pkt = network::make_member_left_packet(&my_pk, &group_id, &my_nick);
-        for m in &members {
-            if m.public_key != my_pk && lan.is_peer_online(&m.public_key) {
-                lan.send_to_peer(&m.public_key, &pkt).ok();
-            }
+    let pkt = network::make_member_left_packet(&my_pk, &group_id, &my_nick);
+    for m in &members {
+        if m.public_key != my_pk {
+            send_packet_to_peer(&state, &m.public_key, &pkt);
         }
     }
     app.emit("group-left", serde_json::json!({ "group_id": group_id, "chat_id": chat_id })).ok();
@@ -1425,13 +1503,10 @@ fn delete_group(group_id: String, state: State<AppState>, app: AppHandle) -> Res
         storage::delete_group(&db, &group_id).map_err(|e| e.to_string())?;
         members
     };
-    let lan_guard = state.lan.lock().unwrap();
-    if let Some(lan) = lan_guard.as_ref() {
-        let pkt = network::make_group_dissolved_packet(&my_pk, &group_id);
-        for m in &members {
-            if m.public_key != my_pk && lan.is_peer_online(&m.public_key) {
-                lan.send_to_peer(&m.public_key, &pkt).ok();
-            }
+    let pkt = network::make_group_dissolved_packet(&my_pk, &group_id);
+    for m in &members {
+        if m.public_key != my_pk {
+            send_packet_to_peer(&state, &m.public_key, &pkt);
         }
     }
     app.emit("group-dissolved", serde_json::json!({ "group_id": group_id })).ok();
@@ -2116,9 +2191,90 @@ pub fn run() {
             search_messages,
             sign_out,
             set_tray_update_badge,
+            open_chat_window,
+            open_channel_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Soviet");
+}
+
+/// Открыть чат в отдельном окне
+#[tauri::command]
+fn open_chat_window(app: AppHandle, chat_id: i64, peer_key: String, peer_name: String) -> Result<(), String> {
+    let safe_label: String = if chat_id > 0 {
+        format!("chat-{}", chat_id)
+    } else {
+        let id: String = peer_key.chars().filter(|c| c.is_ascii_alphanumeric()).take(16).collect();
+        format!("chat-{}", id)
+    };
+    if let Some(w) = app.get_webview_window(&safe_label) {
+        w.show().ok();
+        w.set_focus().ok();
+        return Ok(());
+    }
+    let escape = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'").replace('\r', "").replace('\n', "");
+    let script = format!(
+        "window.__POPOUT__={{type:'chat',chatId:{},peerKey:'{}',peerName:'{}'}};",
+        chat_id, escape(&peer_key), escape(&peer_name)
+    );
+    tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
+        .title(&peer_name)
+        .inner_size(480.0, 620.0)
+        .min_inner_size(360.0, 400.0)
+        .initialization_script(&script)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Открыть канал в отдельном окне
+#[tauri::command]
+fn open_channel_window(app: AppHandle, channel_id: String, channel_name: String) -> Result<(), String> {
+    let safe_id: String = channel_id.chars().filter(|c| c.is_ascii_alphanumeric()).take(16).collect();
+    let label = format!("chan-{}", safe_id);
+    if let Some(w) = app.get_webview_window(&label) {
+        w.show().ok();
+        w.set_focus().ok();
+        return Ok(());
+    }
+    let escape = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'").replace('\r', "").replace('\n', "");
+    let script = format!(
+        "window.__POPOUT__={{type:'channel',channelId:'{}',channelName:'{}'}};",
+        escape(&channel_id), escape(&channel_name)
+    );
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+        .title(&channel_name)
+        .inner_size(560.0, 650.0)
+        .min_inner_size(400.0, 400.0)
+        .initialization_script(&script)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Обновляет иконку трея + тултип с числом непрочитанных
+fn update_tray_badge(app: &AppHandle, unread: u32) {
+    let Some(tray) = app.tray_by_id("main-tray") else { return };
+    let icon_bytes = if unread > 0 { TRAY_MSG_PNG } else { TRAY_IDLE_PNG };
+    if let Ok(icon) = tauri::image::Image::from_bytes(icon_bytes) {
+        tray.set_icon(Some(icon)).ok();
+    }
+    let tooltip = if unread > 0 {
+        format!("Soviet — {} непрочитанных", unread)
+    } else {
+        "Soviet Messenger".to_string()
+    };
+    tray.set_tooltip(Some(&tooltip)).ok();
+    // macOS: показываем цифру рядом с иконкой в menu bar
+    #[cfg(target_os = "macos")]
+    {
+        if unread > 0 {
+            let label = if unread > 99 { "99+".to_string() } else { unread.to_string() };
+            tray.set_title(Some(label)).ok();
+        } else {
+            tray.set_title(None::<String>).ok();
+        }
+    }
 }
 
 /// Обновляет тултип трея и добавляет пункт меню «Обновить» при наличии обновления

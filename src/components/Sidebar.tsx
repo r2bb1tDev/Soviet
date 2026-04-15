@@ -34,6 +34,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const [profileContact, setProfileContact] = useState<Contact | null>(null)
   const [showRequest, setShowRequest] = useState(false)
   const [channelCtxMenu, setChannelCtxMenu] = useState<{ ch: NostrChannel; x: number; y: number } | null>(null)
+  const [groupCtxMenu, setGroupCtxMenu] = useState<{ chat: typeof chats[0]; x: number; y: number } | null>(null)
   const [showUserSearch, setShowUserSearch] = useState(false)
   const [showTransfers, setShowTransfers] = useState(false)
 
@@ -69,6 +70,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
       setShowUserSearch(false)
       setShowRequest(false)
       setChannelCtxMenu(null)
+      setGroupCtxMenu(null)
     }
     window.addEventListener('soviet:escape', handler)
     return () => window.removeEventListener('soviet:escape', handler)
@@ -80,7 +82,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
   }, [sidebarSearch])
   useEffect(() => {
-    const close = () => { setChannelCtxMenu(null) }
+    const close = () => { setChannelCtxMenu(null); setGroupCtxMenu(null) }
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
@@ -316,6 +318,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
                         background: activeChat?.id === chat.id ? 'var(--row-active-bg)' : 'transparent',
                       }}
                       onClick={() => openGroupChat(chat)}
+                      onContextMenu={e => { e.preventDefault(); setGroupCtxMenu({ chat, x: e.clientX, y: e.clientY }) }}
                       onMouseEnter={e => { if (activeChat?.id !== chat.id) e.currentTarget.style.background = 'var(--bg-hover)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = activeChat?.id === chat.id ? 'var(--row-active-bg)' : 'transparent' }}
                     >
@@ -487,18 +490,49 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
       {/* ── Channel context menu ── */}
       {channelCtxMenu && (
         <div
-          style={s.ctxMenu}
+          style={{ ...s.ctxMenu, left: Math.min(channelCtxMenu.x, window.innerWidth - 200), top: Math.min(channelCtxMenu.y, window.innerHeight - 120) }}
           onClick={e => e.stopPropagation()}
         >
           <button style={s.ctxItem} onClick={() => { setActiveChannel(channelCtxMenu.ch); setChannelCtxMenu(null) }}>
-            Открыть
+            💬 Открыть
           </button>
-          <button style={s.ctxItem} onClick={async () => {
+          <button style={s.ctxItem} onClick={() => {
+            invoke('open_channel_window', {
+              channelId: channelCtxMenu.ch.channel_id,
+              channelName: channelCtxMenu.ch.name,
+            })
+            setChannelCtxMenu(null)
+          }}>
+            🪟 Открыть в новом окне
+          </button>
+          <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
+          <button style={{ ...s.ctxItem, color: 'var(--busy)' }} onClick={async () => {
             if (!confirm(`Покинуть «${channelCtxMenu.ch.name}»?`)) return
             await useStore.getState().leaveChannel(channelCtxMenu.ch.channel_id)
             setChannelCtxMenu(null)
           }}>
-            Покинуть
+            🚪 Покинуть
+          </button>
+        </div>
+      )}
+
+      {groupCtxMenu && (
+        <div
+          style={{ ...s.ctxMenu, left: Math.min(groupCtxMenu.x, window.innerWidth - 200), top: Math.min(groupCtxMenu.y, window.innerHeight - 100) }}
+          onClick={e => e.stopPropagation()}
+        >
+          <button style={s.ctxItem} onClick={() => { openGroupChat(groupCtxMenu.chat); setGroupCtxMenu(null) }}>
+            💬 Открыть
+          </button>
+          <button style={s.ctxItem} onClick={() => {
+            invoke('open_chat_window', {
+              chatId: groupCtxMenu.chat.id,
+              peerKey: '',
+              peerName: groupCtxMenu.chat.group_name ?? 'Группа',
+            })
+            setGroupCtxMenu(null)
+          }}>
+            🪟 Открыть в новом окне
           </button>
         </div>
       )}
@@ -510,6 +544,16 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onOpenChat={() => openChat(contextMenu.contact)}
+          onOpenInWindow={() => {
+            const c = contextMenu.contact
+            const chat = chatForContact(c.public_key)
+            invoke('open_chat_window', {
+              chatId: chat?.id ?? -1,
+              peerKey: c.public_key,
+              peerName: c.local_alias ?? c.nickname,
+            })
+            setContextMenu(null)
+          }}
           onViewProfile={() => { setProfileContact(contextMenu.contact); setContextMenu(null) }}
           onToggleFavorite={() => handleToggleFavorite(contextMenu.contact)}
           onDelete={() => handleDelete(contextMenu.contact)}

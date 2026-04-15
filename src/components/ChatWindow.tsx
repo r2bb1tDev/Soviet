@@ -49,6 +49,10 @@ export default function ChatWindow() {
 
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [missedCount, setMissedCount] = useState(0)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounterRef = useRef(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -136,6 +140,13 @@ export default function ChatWindow() {
     return () => window.removeEventListener('soviet:escape', handler)
   }, [])
 
+  // Когда messages загружаются впервые (смена чата) — выставляем hasMore
+  useEffect(() => {
+    if (activeChat?.id && messages.length > 0) {
+      setHasMore(messages.length >= 50)
+    }
+  }, [activeChat?.id])
+
   // Автоскролл — только если уже внизу
   useEffect(() => {
     if (messages.length === 0) return
@@ -175,6 +186,10 @@ export default function ChatWindow() {
     isAtBottomRef.current = atBottom
     setIsAtBottom(atBottom)
     if (atBottom) setMissedCount(0)
+    // Автозагрузка при достижении верха
+    if (el.scrollTop < 80 && hasMore && !isLoadingMore) {
+      handleLoadMore()
+    }
   }
 
   const jumpToBottom = () => {
@@ -185,10 +200,27 @@ export default function ChatWindow() {
   }
 
   const handleLoadMore = async () => {
-    if (!activeChat?.id || messages.length === 0) return
+    if (!activeChat?.id || messages.length === 0 || isLoadingMore) return
     const firstTs = messages[0]?.timestamp
     if (!firstTs) return
-    try { await loadMoreMessages(activeChat.id, firstTs) } catch {}
+    const el = messagesContainerRef.current
+    // Запоминаем высоту до загрузки, чтобы восстановить позицию
+    const prevScrollHeight = el?.scrollHeight ?? 0
+    setIsLoadingMore(true)
+    try {
+      const loaded = await loadMoreMessages(activeChat.id, firstTs)
+      if (loaded < 50) setHasMore(false)
+      // Восстанавливаем позицию скролла — добавленные сообщения вверху
+      requestAnimationFrame(() => {
+        if (el) {
+          el.scrollTop = el.scrollHeight - prevScrollHeight
+        }
+      })
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingMore(false)
+    }
   }
 
   // Очистка состояния при смене чата
@@ -198,8 +230,10 @@ export default function ChatWindow() {
     setShowEmoji(false)
     setEditingId(null)
     setContextMenu(null)
+    setHasMore(false)
+    setIsLoadingMore(false)
     textareaRef.current?.focus()
-    
+
     // Загружаем сообщения нового чата сразу после активации
     if (activeChat?.id && activeChat.id > 0) {
       storeLoadMessages(activeChat.id).catch(() => {})
@@ -239,9 +273,9 @@ export default function ChatWindow() {
     }
   }
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !activeChat?.peer_key) return
+  const sendFileToChat = async (file: File) => {
+    const peer_key = activeChat?.peer_key
+    if (!peer_key) return
     if (file.size > 10 * 1024 * 1024) { alert('Файл слишком большой (макс. 10 МБ)'); return }
     const reader = new FileReader()
     reader.onload = async (ev) => {
@@ -249,7 +283,7 @@ export default function ChatWindow() {
       const base64 = dataUrl.split(',')[1]
       try {
         await invoke('send_file', {
-          recipientPk: activeChat.peer_key,
+          recipientPk: peer_key,
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
           dataBase64: base64,
@@ -259,6 +293,22 @@ export default function ChatWindow() {
       } catch {}
     }
     reader.readAsDataURL(file)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    dragCounterRef.current = 0
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer.files)
+    for (const file of files) {
+      await sendFileToChat(file)
+    }
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await sendFileToChat(file)
     e.target.value = ''
   }
 
@@ -447,7 +497,29 @@ export default function ChatWindow() {
   if (!activeChat) return null
 
   return (
-    <div style={s.root} onClick={() => setShowEmoji(false)}>
+    <div
+      style={s.root}
+      onClick={() => setShowEmoji(false)}
+      onDragEnter={e => { e.preventDefault(); dragCounterRef.current++; setIsDragOver(true) }}
+      onDragLeave={() => { dragCounterRef.current--; if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragOver(false) } }}
+      onDragOver={e => e.preventDefault()}
+      onDrop={handleDrop}
+    >
+      {isDragOver && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 9000,
+          background: 'rgba(46,204,113,0.12)',
+          border: '2px dashed var(--accent)',
+          borderRadius: 8,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          <div style={{ textAlign: 'center', color: 'var(--accent)' }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>📎</div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>Перетащите файл для отправки</div>
+          </div>
+        </div>
+      )}
       {/* ── Header ── */}
       <div style={s.header}>
         <div
@@ -520,10 +592,15 @@ export default function ChatWindow() {
 
       {/* ── Message list ── */}
       <div ref={messagesContainerRef} style={s.messages} onScroll={handleContainerScroll}>
-        {messages.length > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 10px' }}>
-            <button className="btn-secondary" style={{ fontSize: 12, padding: '6px 10px' }} onClick={handleLoadMore}>
-              Показать историю
+        {hasMore && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 12px' }}>
+            <button
+              className="btn-secondary"
+              style={{ fontSize: 12, padding: '6px 14px', opacity: isLoadingMore ? 0.6 : 1, minWidth: 120 }}
+              onClick={handleLoadMore}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? '⏳ Загрузка…' : '↑ Загрузить ещё'}
             </button>
           </div>
         )}
@@ -1208,11 +1285,12 @@ function TypingDots() {
 }
 
 function StatusIcon({ status }: { status: string }) {
-  const isRead = status === 'read'
+  const cls = status === 'read' ? 'read' : status === 'delivered' ? 'delivered' : 'sent'
+  const double = status === 'delivered' || status === 'read'
   return (
-    <span className={`bubble-tick ${isRead ? 'read' : 'unread'}`}>
+    <span className={`bubble-tick ${cls}`} title={status === 'read' ? 'Прочитано' : status === 'delivered' ? 'Доставлено' : 'Отправлено'}>
       <svg viewBox="0 0 16 11" fill="none">
-        {status !== 'sent'
+        {double
           ? <>
               <path d="M1 5.5L5.5 10L15 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M4 5.5L8.5 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>

@@ -71,7 +71,8 @@
   --header-text:        #C8FFD4;
   --header-sub:         #6ECC8A;
   --tick-read:          #2ECC71;
-  --tick-unread:        #1A4D2E;
+  --tick-delivered:     #4A8A5E;
+  --tick-sent:          #2A4A35;
 }
 
 /* ── Light Theme Overrides ── */
@@ -127,7 +128,8 @@
   --header-text:        #0D2B14;
   --header-sub:         #1E6B36;
   --tick-read:          #1E9B50;
-  --tick-unread:        #A8C8B0;
+  --tick-delivered:     #7AAA8A;
+  --tick-sent:          #B0CCB8;
 
   -webkit-font-smoothing: antialiased;
   image-rendering: auto;
@@ -322,8 +324,9 @@ button:active { opacity: 0.75; }
 /* Tick marks */
 .bubble-tick { display: flex; align-items: center; }
 .bubble-tick svg { width: 16px; height: 11px; }
-.bubble-tick.read svg { color: var(--tick-read); }
-.bubble-tick.unread svg { color: var(--tick-unread); }
+.bubble-tick.read      svg { color: var(--tick-read); }
+.bubble-tick.delivered svg { color: var(--tick-delivered); }
+.bubble-tick.sent      svg { color: var(--tick-sent); }
 
 /* Sender name (groups) */
 .bubble-sender {

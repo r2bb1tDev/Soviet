@@ -568,16 +568,37 @@ async fn on_relay_msg(
             }
 
             // Расшифровываем с помощью Soviet keypair
-            let preview = {
+            let decrypted_bytes = {
                 let kp_guard = state.keypair.lock().unwrap();
                 match kp_guard.as_ref() {
-                    Some(kp) => crate::crypto::decrypt_message(kp, &encrypted)
-                        .ok()
-                        .and_then(|b| String::from_utf8(b).ok())
-                        .unwrap_or_else(|| "[сообщение]".to_string()),
+                    Some(kp) => match crate::crypto::decrypt_message(kp, &encrypted) {
+                        Ok(b) => b,
+                        Err(_) => return,
+                    },
                     None => return,
                 }
             };
+
+            let decrypted_str = match String::from_utf8(decrypted_bytes) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+
+            // Если payload — это LanPacket (групповые сообщения, приглашения, etc.) — роутируем
+            if let Ok(packet) = serde_json::from_str::<crate::network::LanPacket>(&decrypted_str) {
+                // Только пакеты связанные с группами и коллаборацией (не plain message — он обрабатывается ниже)
+                match packet.packet_type.as_str() {
+                    "group_message" | "group_invite" | "member_left" | "group_dissolved"
+                    | "read_receipt" | "reaction" | "edit_message" | "delete_message"
+                    | "contact_request" | "hello" => {
+                        crate::handle_lan_packet(app, packet);
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+
+            let preview = decrypted_str;
 
             // Сохраняем в БД (через Nostr-соединение db)
             let conn = db.lock().unwrap();
