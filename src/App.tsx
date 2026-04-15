@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { check as checkUpdate } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import { useStore } from './store'
 import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
@@ -64,6 +65,7 @@ export default function App() {
     try {
       if (updateInfo) {
         await updateInfo.downloadAndInstall()
+        await relaunch()
       }
     } catch (error) {
       console.error('[updater] install failed:', error)
