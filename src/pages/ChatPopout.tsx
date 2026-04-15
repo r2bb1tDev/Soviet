@@ -17,6 +17,14 @@ export interface PopoutData {
   channelName?: string
 }
 
+// Применяем тему СИНХРОННО сразу при загрузке модуля — до первого рендера.
+// Без этого окно будет белым пока не разрешится async invoke.
+;(function applyThemeSync() {
+  const saved = localStorage.getItem('soviet_theme')
+  const dark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+})()
+
 export default function ChatPopout({ data }: { data: PopoutData }) {
   const {
     loadIdentity, loadContacts, loadChats, loadChannels,
@@ -32,19 +40,20 @@ export default function ChatPopout({ data }: { data: PopoutData }) {
     const preventCtx = (e: MouseEvent) => e.preventDefault()
     document.addEventListener('contextmenu', preventCtx)
 
-    // Тема
+    // Уточняем тему из настроек (асинхронно, обновляет если нужно)
     invoke<any>('get_settings').then(s => {
       const t = s?.theme ?? 'system'
-      if (t === 'dark')  document.documentElement.setAttribute('data-theme', 'dark')
+      if (t === 'dark')       document.documentElement.setAttribute('data-theme', 'dark')
       else if (t === 'light') document.documentElement.setAttribute('data-theme', 'light')
       else {
         const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
       }
-    }).catch(() => {
-      const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
-    })
+      // Сохраняем для следующего синхронного запуска
+      localStorage.setItem('soviet_theme', t === 'system'
+        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : t)
+    }).catch(() => {})
 
     // Восстановить масштаб
     const scale = localStorage.getItem('uiScale')

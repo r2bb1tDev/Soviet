@@ -81,8 +81,11 @@ export default function App() {
 
     invoke<any>('get_settings').then(s => {
       const t = s?.theme ?? 'system'
-      if (t === 'dark')  document.documentElement.setAttribute('data-theme', 'dark')
-      if (t === 'light') document.documentElement.setAttribute('data-theme', 'light')
+      let resolved: string
+      if (t === 'dark')       { document.documentElement.setAttribute('data-theme', 'dark');  resolved = 'dark' }
+      else if (t === 'light') { document.documentElement.setAttribute('data-theme', 'light'); resolved = 'light' }
+      else                    { resolved = mq.matches ? 'dark' : 'light' }
+      localStorage.setItem('soviet_theme', resolved)
     }).catch(() => {})
 
     // Восстанавливаем масштаб и высокий контраст из localStorage

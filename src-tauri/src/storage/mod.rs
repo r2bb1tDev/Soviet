@@ -214,46 +214,53 @@ pub fn open(path: &str, enc_key: &[u8; 32]) -> anyhow::Result<Connection> {
 }
 
 /// Однократная миграция незашифрованной БД в SQLCipher.
-/// Определяет тип БД: если уже зашифрована — пропускает.
+/// Определяет тип БД по magic bytes — надёжно работает с SQLCipher.
 fn migrate_to_encrypted(path: &str, enc_key: &[u8; 32]) -> anyhow::Result<()> {
     use std::path::Path;
+    use std::io::Read;
 
     // Если файла нет — новая БД, будет создана сразу зашифрованной
     if !Path::new(path).exists() {
         return Ok(());
     }
 
-    // Проверяем: можно ли открыть без ключа (незашифрованная)?
-    let test = Connection::open(path)?;
-    let is_plain = test.execute_batch("SELECT count(*) FROM sqlite_master;").is_ok();
-    drop(test);
+    // SQLite plaintext-файл ВСЕГДА начинается с "SQLite format 3\0" (16 байт).
+    // SQLCipher-зашифрованный файл начинается с произвольных байт.
+    // Это ЕДИНСТВЕННЫЙ надёжный способ определить тип при использовании SQLCipher.
+    let is_plain = {
+        let mut f = std::fs::File::open(path)?;
+        let mut header = [0u8; 16];
+        matches!(f.read_exact(&mut header), Ok(())) && &header == b"SQLite format 3\0"
+    };
 
     if !is_plain {
-        // Уже зашифрована — ничего не делаем
+        // Уже зашифрована или повреждена — ничего не делаем
         return Ok(());
     }
 
     log::info!("SQLCipher: migrating plaintext DB to encrypted...");
 
-    // Создаём зашифрованную копию рядом
     let enc_path = format!("{}.enc", path);
     let key_hex = hex::encode(enc_key);
 
+    // Открываем plaintext БД: PRAGMA key = "" в SQLCipher = без шифрования
     let old = Connection::open(path)?;
+    old.execute_batch("PRAGMA key = \"\";")?;
+    // Экспортируем в новую зашифрованную БД
     old.execute_batch(&format!(
-        "ATTACH DATABASE '{}' AS encrypted KEY \"x'{}'\";\n\
-         SELECT sqlcipher_export('encrypted');\n\
+        "ATTACH DATABASE '{}' AS encrypted KEY \"x'{}'\";\
+         SELECT sqlcipher_export('encrypted');\
          DETACH DATABASE encrypted;",
         enc_path, key_hex
     ))?;
     drop(old);
 
-    // Делаем резервную копию и заменяем оригинал
+    // Резервная копия + заменяем оригинал
     let bak_path = format!("{}.bak", path);
     std::fs::copy(path, &bak_path)?;
     std::fs::rename(&enc_path, path)?;
 
-    log::info!("SQLCipher: migration done. Backup at {}", bak_path);
+    log::info!("SQLCipher: migration done. Backup saved at {}", bak_path);
     Ok(())
 }
 

@@ -50,13 +50,12 @@ jobs:
             libpango1.0-dev libatk1.0-dev libayatana-appindicator3-dev \
             perl
 
-      # ── Windows: Strawberry Perl (нужен для сборки OpenSSL/SQLCipher) ────────
-      - name: Install Strawberry Perl (Windows)
+      # ── Windows: Strawberry Perl уже предустановлен на windows-latest ─────────
+      # Просто добавляем в PATH — shogo82148 action не нужен
+      - name: Add Strawberry Perl to PATH (Windows)
         if: matrix.platform == 'windows-latest'
-        uses: shogo82148/actions-setup-perl@v1
-        with:
-          perl-version: '5.38'
-          distribution: Strawberry
+        shell: bash
+        run: echo "C:/Strawberry/perl/bin" >> $GITHUB_PATH
 
       # ── Windows: импорт сертификата подписи ─────────────────────────────────
       - name: Import Windows code signing certificate
