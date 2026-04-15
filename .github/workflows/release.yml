@@ -75,9 +75,11 @@ jobs:
           $thumb = (Get-ChildItem Cert:\CurrentUser\My | Sort-Object NotAfter -Descending | Select-Object -First 1).Thumbprint
           echo "WINDOWS_CERT_THUMBPRINT=$thumb" >> $env:GITHUB_ENV
 
-      # ── macOS: импорт сертификата разработчика в keychain ───────────────────
+      # ── macOS: импорт сертификата + экспорт signing vars в $GITHUB_ENV ────────
+      # if использует secrets.* (не env.*) — иначе условие всегда false,
+      # потому что step-level env недоступен в if-выражениях
       - name: Import macOS signing certificate
-        if: startsWith(matrix.platform, 'macos') && env.APPLE_CERTIFICATE != ''
+        if: startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE != ''
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -94,14 +96,8 @@ jobs:
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign: -s -k "$APPLE_KEYCHAIN_PASSWORD" build.keychain
           rm /tmp/certificate.p12
-
-      # ── macOS: выставляем идентификатор подписи только при наличии сертификата ─
-      # Без этого шага APPLE_SIGNING_IDENTITY = "" → codesign падает с ошибкой
-      - name: Export macOS signing identity to env
-        if: startsWith(matrix.platform, 'macos') && env.APPLE_CERTIFICATE != ''
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-        run: |
+          # Экспортируем signing vars в $GITHUB_ENV — tauri-action подхватит их
+          # Делаем это ЗДЕСЬ, а не в отдельном шаге, чтобы условие не повторялось
           echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> $GITHUB_ENV
           echo "APPLE_ID=${{ secrets.APPLE_ID }}"                             >> $GITHUB_ENV
           echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}"                 >> $GITHUB_ENV
@@ -131,11 +127,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Windows: подпись бинаря (через signtool)
           TAURI_SIGN_WITH_THUMBPRINT:        ${{ env.WINDOWS_CERT_THUMBPRINT }}
-          # macOS: нотаризация и подпись — берём из env (выставлены выше только при наличии сертификата)
-          APPLE_ID:                          ${{ env.APPLE_ID }}
-          APPLE_PASSWORD:                    ${{ env.APPLE_PASSWORD }}
-          APPLE_TEAM_ID:                     ${{ env.APPLE_TEAM_ID }}
-          APPLE_SIGNING_IDENTITY:            ${{ env.APPLE_SIGNING_IDENTITY }}
+          # macOS: APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+          # НЕ задаём здесь — они попадают в окружение через $GITHUB_ENV в шаге выше,
+          # только если APPLE_CERTIFICATE secret задан. Это предотвращает передачу
+          # пустой строки "" в codesign, что вызывало "item could not be found in keychain".
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Soviet v__VERSION__'

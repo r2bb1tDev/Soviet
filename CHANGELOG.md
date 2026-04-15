@@ -5,6 +5,16 @@
 
 ---
 
+## [2.5.5] — 2026-04-15
+
+**Патч: macOS CI codesign — окончательный фикс**
+
+### Исправлено
+- **CI macOS**: `if: ... && env.APPLE_CERTIFICATE != ''` всегда было `false` — `env.*` в `if`-выражениях ссылается на job/workflow-уровень, а не step-уровень. Исправлено на `secrets.APPLE_CERTIFICATE != ''`
+- **CI macOS**: Apple signing vars убраны из `env:` блока tauri-action и теперь попадают в окружение только через `$GITHUB_ENV` внутри шага импорта сертификата. Пустая строка `""` больше не утекает в `codesign`
+
+---
+
 ## [2.5.4] — 2026-04-15
 
 **Патч: CI macOS падал из-за пустого APPLE_SIGNING_IDENTITY**
