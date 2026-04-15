@@ -5,6 +5,15 @@
 
 ---
 
+## [2.5.4] — 2026-04-15
+
+**Патч: CI macOS падал из-за пустого APPLE_SIGNING_IDENTITY**
+
+### Исправлено
+- **CI macOS codesign** — `APPLE_SIGNING_IDENTITY` теперь передаётся в tauri-action только при наличии сертификата (`APPLE_CERTIFICATE` секрет); раньше пустая строка `""` попадала в `codesign --sign ""` → ошибка "item could not be found in keychain". Аналогично для `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` (нотаризация)
+
+---
+
 ## [2.5.3] — 2026-04-15
 
 **Патч: автообновление не перезапускалось + белое окно (окончательный фикс)**
