@@ -59,33 +59,9 @@ export default function ChatPopout({ data }: { data: PopoutData }) {
     const scale = localStorage.getItem('uiScale')
     if (scale) document.documentElement.style.zoom = `${scale}%`
 
-    // Устанавливаем активный чат/канал СИНХРОННО до любых await —
-    // иначе если invoke упадёт, init() прерывается и UI остаётся белым
-    if (data.type === 'chat') {
-      setActiveChat({
-        id: data.chatId ?? -1,
-        chat_type: 'direct',
-        peer_key: data.peerKey ?? '',
-        group_id: null,
-        created_at: Date.now() / 1000,
-        last_message: null,
-        last_message_time: null,
-        unread_count: 0,
-        group_name: null,
-      })
-    } else {
-      setActiveChannel({
-        channel_id: data.channelId ?? '',
-        name: data.channelName ?? '',
-        about: '',
-        picture: '',
-        creator_pubkey: '',
-        relay: '',
-        unread_count: 0,
-        last_message: null,
-        last_message_time: null,
-      })
-    }
+    // Стор уже прайминирован в main.tsx через useStore.setState() ДО рендера —
+    // activeChat/activeChannel уже выставлены без вызова invoke().
+    // Здесь только загружаем полные данные через IPC (Tauri уже готов к этому моменту).
 
     // Инициализация данных — загружаем полный стейт и обновляем UI
     async function init() {
