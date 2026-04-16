@@ -2256,7 +2256,7 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
             "theme": theme,
         }));
     }
-    tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
+    tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("popout.html".into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
@@ -2285,7 +2285,7 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
             "theme": theme,
         }));
     }
-    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("popout.html".into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
