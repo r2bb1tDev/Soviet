@@ -83,6 +83,20 @@ export default function ChatPopout({ data }: { data: PopoutData }) {
           group_name: null,
         })
       } else {
+        // Устанавливаем канал немедленно из данных попаута — ChannelWindow
+        // рендерится сразу, без белого/пустого экрана "Выберите канал"
+        setActiveChannel({
+          channel_id: data.channelId ?? '',
+          name: data.channelName ?? '',
+          about: '',
+          picture: '',
+          creator_pubkey: '',
+          relay: '',
+          unread_count: 0,
+          last_message: null,
+          last_message_time: null,
+        })
+        // Затем подгружаем полные данные и обновляем
         await loadChannels()
         const st = useStore.getState()
         const ch = st.channels.find(c => c.channel_id === data.channelId)
