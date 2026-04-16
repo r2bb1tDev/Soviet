@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for Soviet Messenger",
-  "windows": ["main"],
+  "windows": ["main", "chat-*", "chan-*"],
   "permissions": [
     "core:default",
     "shell:allow-open",
