@@ -5,13 +5,12 @@
     <link rel="icon" type="image/svg+xml" href="/assets/logo/bear_icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Soviet</title>
-    <!-- Применяем тему СИНХРОННО до первого рендера — убирает белую вспышку в любом окне.
-         __POPOUT_THEME__ может быть выставлен Tauri initialization_script до загрузки страницы
-         (для попаут-окон чата/канала), что гарантирует правильную тему даже без localStorage. -->
+    <!-- Применяем тему СИНХРОННО до первого рендера.
+         Приоритет: ?theme= URL-параметр (попаут) → localStorage → prefers-color-scheme -->
     <script>
       ;(function(){
-        var t = window.__POPOUT_THEME__;
-        var s = t || localStorage.getItem('soviet_theme');
+        var p = new URLSearchParams(window.location.search).get('theme');
+        var s = p || localStorage.getItem('soviet_theme');
         var dark = s === 'dark' || (!s && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
       })();

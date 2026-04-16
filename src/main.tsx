@@ -2,19 +2,45 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import ChatPopout from './pages/ChatPopout'
+import { PopoutData } from './pages/ChatPopout'
 import './styles/global.css'
 import { useStore } from './store'
 
-const popout = (window as any).__POPOUT__
+// Читаем данные попаута из URL query-параметров.
+// Это единственный надёжный способ в Tauri v2 + Vite dev режиме:
+// initialization_script выполняется до Vite runtime и затирается HMR,
+// тогда как URL-параметры всегда доступны до любого JS.
+function getPopoutData(): PopoutData | null {
+  const p = new URLSearchParams(window.location.search)
+  const type = p.get('popout')
+  if (type === 'chat') {
+    return {
+      type: 'chat',
+      chatId: Number(p.get('chatId') ?? '-1'),
+      peerKey: p.get('peerKey') ?? '',
+      peerName: p.get('peerName') ?? '',
+    }
+  }
+  if (type === 'channel') {
+    return {
+      type: 'channel',
+      channelId: p.get('channelId') ?? '',
+      channelName: p.get('channelName') ?? '',
+    }
+  }
+  return null
+}
 
-// Прайминг Zustand-стора ДО первого рендера React — иначе ChatWindow/ChannelWindow
-// возвращают null (activeChat/activeChannel === null) на первом рендере и пользователь
-// видит белое окно навсегда.
-//
-// ВАЖНО: используем useStore.setState() напрямую, а НЕ setActiveChat/setActiveChannel.
-// setActive* вызывают loadMessages/loadChannelMessages → invoke() сразу,
-// но на этом этапе Tauri IPC ещё не инициализирован → invoke бросает исключение
-// → состояние остаётся сломанным. setState() только пишет данные, без invoke.
+// Применяем тему из URL-параметра немедленно (до рендера)
+const themeParam = new URLSearchParams(window.location.search).get('theme')
+if (themeParam === 'dark' || themeParam === 'light') {
+  document.documentElement.setAttribute('data-theme', themeParam)
+}
+
+const popout = getPopoutData()
+
+// Прайминг Zustand-стора ДО первого рендера React через setState() (без invoke).
+// setActiveChat/setActiveChannel вызывают invoke() сразу — до готовности Tauri IPC.
 if (popout) {
   if (popout.type === 'chat') {
     useStore.setState({

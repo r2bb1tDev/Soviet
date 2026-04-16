@@ -2206,12 +2206,25 @@ pub fn run() {
         .expect("error while running Soviet");
 }
 
+/// URL-кодирование компонента (заменяем спецсимволы)
+fn url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
+            | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
 /// Читает тему из базы настроек и возвращает 'dark' или 'light'
 fn resolve_theme(state: &tauri::State<'_, AppState>) -> &'static str {
     let db = state.db.0.lock().unwrap();
     match storage::get_setting(&db, "theme").ok().flatten().unwrap_or_default().as_str() {
         "light" => "light",
-        _ => "dark", // "dark", "system" или пусто → тёмная (дефолт)
+        _ => "dark",
     }
 }
 
@@ -2230,18 +2243,17 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
         return Ok(());
     }
     let theme = resolve_theme(&state);
-    let escape = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'").replace('\r', "").replace('\n', "");
-    // __POPOUT_THEME__ читается index.html ДО localStorage — гарантирует правильную тему
-    // даже на macOS где localStorage не шарится между окнами.
-    let script = format!(
-        "window.__POPOUT_THEME__='{}';window.__POPOUT__={{type:'chat',chatId:{},peerKey:'{}',peerName:'{}'}};",
-        theme, chat_id, escape(&peer_key), escape(&peer_name)
+    // Передаём данные через URL query-параметры — единственный надёжный способ
+    // в Tauri v2 + Vite dev режиме. initialization_script ненадёжен: выполняется
+    // до Vite runtime и затирается HMR. URL-параметры всегда доступны до любого JS.
+    let url = format!(
+        "index.html?popout=chat&chatId={}&peerKey={}&peerName={}&theme={}",
+        chat_id, url_encode(&peer_key), url_encode(&peer_name), theme
     );
-    tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
+    tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App(url.into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
-        .initialization_script(&script)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -2258,16 +2270,14 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
         return Ok(());
     }
     let theme = resolve_theme(&state);
-    let escape = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'").replace('\r', "").replace('\n', "");
-    let script = format!(
-        "window.__POPOUT_THEME__='{}';window.__POPOUT__={{type:'channel',channelId:'{}',channelName:'{}'}};",
-        theme, escape(&channel_id), escape(&channel_name)
+    let url = format!(
+        "index.html?popout=channel&channelId={}&channelName={}&theme={}",
+        url_encode(&channel_id), url_encode(&channel_name), theme
     );
-    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
-        .initialization_script(&script)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
