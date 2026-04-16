@@ -6,41 +6,25 @@ import { PopoutData } from './pages/ChatPopout'
 import './styles/global.css'
 import { useStore } from './store'
 
-// Читаем данные попаута из URL query-параметров.
-// Это единственный надёжный способ в Tauri v2 + Vite dev режиме:
-// initialization_script выполняется до Vite runtime и затирается HMR,
-// тогда как URL-параметры всегда доступны до любого JS.
+// Читаем данные попаута из sessionStorage.
+// initialization_script записывает туда JSON ДО загрузки Vite runtime.
+// sessionStorage переживает Vite HMR (HMR заменяет JS-модули без перезагрузки страницы),
+// поэтому данные остаются доступными когда этот модуль выполняется.
 function getPopoutData(): PopoutData | null {
-  const p = new URLSearchParams(window.location.search)
-  const type = p.get('popout')
-  if (type === 'chat') {
-    return {
-      type: 'chat',
-      chatId: Number(p.get('chatId') ?? '-1'),
-      peerKey: p.get('peerKey') ?? '',
-      peerName: p.get('peerName') ?? '',
-    }
-  }
-  if (type === 'channel') {
-    return {
-      type: 'channel',
-      channelId: p.get('channelId') ?? '',
-      channelName: p.get('channelName') ?? '',
-    }
-  }
+  try {
+    const raw = sessionStorage.getItem('__soviet_popout__')
+    if (!raw) return null
+    const d = JSON.parse(raw)
+    if (d?.type === 'chat' || d?.type === 'channel') return d as PopoutData
+  } catch {}
   return null
-}
-
-// Применяем тему из URL-параметра немедленно (до рендера)
-const themeParam = new URLSearchParams(window.location.search).get('theme')
-if (themeParam === 'dark' || themeParam === 'light') {
-  document.documentElement.setAttribute('data-theme', themeParam)
 }
 
 const popout = getPopoutData()
 
 // Прайминг Zustand-стора ДО первого рендера React через setState() (без invoke).
-// setActiveChat/setActiveChannel вызывают invoke() сразу — до готовности Tauri IPC.
+// setActiveChat/setActiveChannel немедленно вызывают invoke() — до готовности Tauri IPC.
+// setState() только пишет данные, без IPC-вызовов.
 if (popout) {
   if (popout.type === 'chat') {
     useStore.setState({

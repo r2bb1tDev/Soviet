@@ -2206,19 +2206,6 @@ pub fn run() {
         .expect("error while running Soviet");
 }
 
-/// URL-кодирование компонента (заменяем спецсимволы)
-fn url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 2);
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
-            | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{:02X}", b)),
-        }
-    }
-    out
-}
-
 /// Читает тему из базы настроек и возвращает 'dark' или 'light'
 fn resolve_theme(state: &tauri::State<'_, AppState>) -> &'static str {
     let db = state.db.0.lock().unwrap();
@@ -2226,6 +2213,14 @@ fn resolve_theme(state: &tauri::State<'_, AppState>) -> &'static str {
         "light" => "light",
         _ => "dark",
     }
+}
+
+/// Экранирует строку для вставки в JS-строку в кавычках
+fn js_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+     .replace('\'', "\\'")
+     .replace('\r', "")
+     .replace('\n', "")
 }
 
 /// Открыть чат в отдельном окне
@@ -2243,17 +2238,25 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
         return Ok(());
     }
     let theme = resolve_theme(&state);
-    // Передаём данные через URL query-параметры — единственный надёжный способ
-    // в Tauri v2 + Vite dev режиме. initialization_script ненадёжен: выполняется
-    // до Vite runtime и затирается HMR. URL-параметры всегда доступны до любого JS.
-    let url = format!(
-        "index.html?popout=chat&chatId={}&peerKey={}&peerName={}&theme={}",
-        chat_id, url_encode(&peer_key), url_encode(&peer_name), theme
+    // Используем sessionStorage — в отличие от window.* переменных,
+    // sessionStorage переживает Vite HMR (HMR заменяет модули, но не перезагружает страницу).
+    // initialization_script запускается ДО Vite runtime, записывает в sessionStorage,
+    // а JS читает его уже после загрузки Vite.
+    let script = format!(
+        "document.documentElement.setAttribute('data-theme','{theme}');\
+         try{{sessionStorage.setItem('__soviet_popout__',\
+           JSON.stringify({{type:'chat',chatId:{chat_id},peerKey:'{pk}',peerName:'{pn}'}}\
+         ))}}catch(e){{}};",
+        theme = theme,
+        chat_id = chat_id,
+        pk = js_escape(&peer_key),
+        pn = js_escape(&peer_name),
     );
-    tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App(url.into()))
+    tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
+        .initialization_script(&script)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -2270,14 +2273,20 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
         return Ok(());
     }
     let theme = resolve_theme(&state);
-    let url = format!(
-        "index.html?popout=channel&channelId={}&channelName={}&theme={}",
-        url_encode(&channel_id), url_encode(&channel_name), theme
+    let script = format!(
+        "document.documentElement.setAttribute('data-theme','{theme}');\
+         try{{sessionStorage.setItem('__soviet_popout__',\
+           JSON.stringify({{type:'channel',channelId:'{cid}',channelName:'{cn}'}}\
+         ))}}catch(e){{}};",
+        theme = theme,
+        cid = js_escape(&channel_id),
+        cn = js_escape(&channel_name),
     );
-    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
+        .initialization_script(&script)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
