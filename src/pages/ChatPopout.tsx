@@ -59,7 +59,35 @@ export default function ChatPopout({ data }: { data: PopoutData }) {
     const scale = localStorage.getItem('uiScale')
     if (scale) document.documentElement.style.zoom = `${scale}%`
 
-    // Инициализация данных
+    // Устанавливаем активный чат/канал СИНХРОННО до любых await —
+    // иначе если invoke упадёт, init() прерывается и UI остаётся белым
+    if (data.type === 'chat') {
+      setActiveChat({
+        id: data.chatId ?? -1,
+        chat_type: 'direct',
+        peer_key: data.peerKey ?? '',
+        group_id: null,
+        created_at: Date.now() / 1000,
+        last_message: null,
+        last_message_time: null,
+        unread_count: 0,
+        group_name: null,
+      })
+    } else {
+      setActiveChannel({
+        channel_id: data.channelId ?? '',
+        name: data.channelName ?? '',
+        about: '',
+        picture: '',
+        creator_pubkey: '',
+        relay: '',
+        unread_count: 0,
+        last_message: null,
+        last_message_time: null,
+      })
+    }
+
+    // Инициализация данных — загружаем полный стейт и обновляем UI
     async function init() {
       await loadIdentity()
       await loadContacts()
@@ -71,32 +99,8 @@ export default function ChatPopout({ data }: { data: PopoutData }) {
           (data.chatId && data.chatId > 0 && c.id === data.chatId) ||
           (data.peerKey && c.peer_key === data.peerKey)
         )
-        setActiveChat(found ?? {
-          id: data.chatId ?? -1,
-          chat_type: 'direct',
-          peer_key: data.peerKey ?? '',
-          group_id: null,
-          created_at: Date.now() / 1000,
-          last_message: null,
-          last_message_time: null,
-          unread_count: 0,
-          group_name: null,
-        })
+        if (found) setActiveChat(found)
       } else {
-        // Устанавливаем канал немедленно из данных попаута — ChannelWindow
-        // рендерится сразу, без белого/пустого экрана "Выберите канал"
-        setActiveChannel({
-          channel_id: data.channelId ?? '',
-          name: data.channelName ?? '',
-          about: '',
-          picture: '',
-          creator_pubkey: '',
-          relay: '',
-          unread_count: 0,
-          last_message: null,
-          last_message_time: null,
-        })
-        // Затем подгружаем полные данные и обновляем
         await loadChannels()
         const st = useStore.getState()
         const ch = st.channels.find(c => c.channel_id === data.channelId)
