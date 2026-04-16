@@ -2206,9 +2206,18 @@ pub fn run() {
         .expect("error while running Soviet");
 }
 
+/// Читает тему из базы настроек и возвращает 'dark' или 'light'
+fn resolve_theme(state: &tauri::State<'_, AppState>) -> &'static str {
+    let db = state.db.0.lock().unwrap();
+    match storage::get_setting(&db, "theme").ok().flatten().unwrap_or_default().as_str() {
+        "light" => "light",
+        _ => "dark", // "dark", "system" или пусто → тёмная (дефолт)
+    }
+}
+
 /// Открыть чат в отдельном окне
 #[tauri::command]
-fn open_chat_window(app: AppHandle, chat_id: i64, peer_key: String, peer_name: String) -> Result<(), String> {
+fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: i64, peer_key: String, peer_name: String) -> Result<(), String> {
     let safe_label: String = if chat_id > 0 {
         format!("chat-{}", chat_id)
     } else {
@@ -2220,10 +2229,13 @@ fn open_chat_window(app: AppHandle, chat_id: i64, peer_key: String, peer_name: S
         w.set_focus().ok();
         return Ok(());
     }
+    let theme = resolve_theme(&state);
     let escape = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'").replace('\r', "").replace('\n', "");
+    // __POPOUT_THEME__ читается index.html ДО localStorage — гарантирует правильную тему
+    // даже на macOS где localStorage не шарится между окнами.
     let script = format!(
-        "window.__POPOUT__={{type:'chat',chatId:{},peerKey:'{}',peerName:'{}'}};",
-        chat_id, escape(&peer_key), escape(&peer_name)
+        "window.__POPOUT_THEME__='{}';window.__POPOUT__={{type:'chat',chatId:{},peerKey:'{}',peerName:'{}'}};",
+        theme, chat_id, escape(&peer_key), escape(&peer_name)
     );
     tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
         .title(&peer_name)
@@ -2237,7 +2249,7 @@ fn open_chat_window(app: AppHandle, chat_id: i64, peer_key: String, peer_name: S
 
 /// Открыть канал в отдельном окне
 #[tauri::command]
-fn open_channel_window(app: AppHandle, channel_id: String, channel_name: String) -> Result<(), String> {
+fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channel_id: String, channel_name: String) -> Result<(), String> {
     let safe_id: String = channel_id.chars().filter(|c| c.is_ascii_alphanumeric()).take(16).collect();
     let label = format!("chan-{}", safe_id);
     if let Some(w) = app.get_webview_window(&label) {
@@ -2245,10 +2257,11 @@ fn open_channel_window(app: AppHandle, channel_id: String, channel_name: String)
         w.set_focus().ok();
         return Ok(());
     }
+    let theme = resolve_theme(&state);
     let escape = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'").replace('\r', "").replace('\n', "");
     let script = format!(
-        "window.__POPOUT__={{type:'channel',channelId:'{}',channelName:'{}'}};",
-        escape(&channel_id), escape(&channel_name)
+        "window.__POPOUT_THEME__='{}';window.__POPOUT__={{type:'channel',channelId:'{}',channelName:'{}'}};",
+        theme, escape(&channel_id), escape(&channel_name)
     );
     tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
         .title(&channel_name)
