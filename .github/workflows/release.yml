@@ -75,33 +75,39 @@ jobs:
           $thumb = (Get-ChildItem Cert:\CurrentUser\My | Sort-Object NotAfter -Descending | Select-Object -First 1).Thumbprint
           echo "WINDOWS_CERT_THUMBPRINT=$thumb" >> $env:GITHUB_ENV
 
-      # ── macOS: импорт сертификата + экспорт signing vars в $GITHUB_ENV ────────
-      # if использует secrets.* (не env.*) — иначе условие всегда false,
-      # потому что step-level env недоступен в if-выражениях
+      # ── macOS: импорт сертификата (только если настроен) ───────────────────────
+      # Секреты передаём через env-переменные шага (безопасно), а не через
+      # ${{ secrets.* }} inline в run-скрипте. Проверку наличия сертификата
+      # делаем в shell, а не в if-условии (secrets.* в if нестабилен).
       - name: Import macOS signing certificate
-        if: startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE != ''
+        if: startsWith(matrix.platform, 'macos')
+        shell: bash
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          _CERT_B64:   ${{ secrets.APPLE_CERTIFICATE }}
+          _CERT_PASS:  ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          _KC_PASS:    ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          _SIGN_ID:    ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          _APPLE_ID:   ${{ secrets.APPLE_ID }}
+          _APPLE_PASS: ${{ secrets.APPLE_PASSWORD }}
+          _TEAM_ID:    ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Создаём временный keychain
-          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" build.keychain
+          if [ -z "$_CERT_B64" ]; then
+            echo "Apple certificate not configured — skipping macOS signing"
+            exit 0
+          fi
+          security create-keychain -p "$_KC_PASS" build.keychain
           security default-keychain -s build.keychain
-          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" build.keychain
-          # Импортируем сертификат
-          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/certificate.p12
+          security unlock-keychain -p "$_KC_PASS" build.keychain
+          echo "$_CERT_B64" | base64 --decode > /tmp/certificate.p12
           security import /tmp/certificate.p12 -k build.keychain \
-            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            -P "$_CERT_PASS" -T /usr/bin/codesign
           security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: -s -k "$APPLE_KEYCHAIN_PASSWORD" build.keychain
+            -S apple-tool:,apple:,codesign: -s -k "$_KC_PASS" build.keychain
           rm /tmp/certificate.p12
-          # Экспортируем signing vars в $GITHUB_ENV — tauri-action подхватит их
-          # Делаем это ЗДЕСЬ, а не в отдельном шаге, чтобы условие не повторялось
-          echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> $GITHUB_ENV
-          echo "APPLE_ID=${{ secrets.APPLE_ID }}"                             >> $GITHUB_ENV
-          echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}"                 >> $GITHUB_ENV
-          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}"                   >> $GITHUB_ENV
+          echo "APPLE_SIGNING_IDENTITY=$_SIGN_ID" >> $GITHUB_ENV
+          echo "APPLE_ID=$_APPLE_ID"              >> $GITHUB_ENV
+          echo "APPLE_PASSWORD=$_APPLE_PASS"      >> $GITHUB_ENV
+          echo "APPLE_TEAM_ID=$_TEAM_ID"          >> $GITHUB_ENV
 
       # ── Rust toolchain ───────────────────────────────────────────────────────
       - name: Setup Rust
