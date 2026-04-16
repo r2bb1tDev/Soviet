@@ -5,27 +5,51 @@ import ChatPopout from './pages/ChatPopout'
 import { PopoutData } from './pages/ChatPopout'
 import './styles/global.css'
 import { useStore } from './store'
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
-// Читаем данные попаута из sessionStorage.
-// initialization_script записывает туда JSON ДО загрузки Vite runtime.
-// sessionStorage переживает Vite HMR (HMR заменяет JS-модули без перезагрузки страницы),
-// поэтому данные остаются доступными когда этот модуль выполняется.
-function getPopoutData(): PopoutData | null {
+// Определяем — это попаут-окно или главное.
+// Используем label окна из Tauri internals: chat-* или chan-* → попаут.
+// Это единственный 100% надёжный способ: не зависит от initialization_script,
+// sessionStorage, URL-параметров — label доступен синхронно всегда.
+const windowLabel = getCurrentWindow().label
+const isPopout = windowLabel.startsWith('chat-') || windowLabel.startsWith('chan-')
+
+async function bootstrap() {
+  if (!isPopout) {
+    // Главное окно — рендерим App сразу
+    ReactDOM.createRoot(document.getElementById('root')!).render(
+      <React.StrictMode><App /></React.StrictMode>
+    )
+    return
+  }
+
+  // Попаут-окно: получаем данные из Rust AppState через invoke.
+  // Данные туда записывает open_chat_window/open_channel_window перед созданием окна.
+  let popout: PopoutData | null = null
   try {
-    const raw = sessionStorage.getItem('__soviet_popout__')
-    if (!raw) return null
-    const d = JSON.parse(raw)
-    if (d?.type === 'chat' || d?.type === 'channel') return d as PopoutData
-  } catch {}
-  return null
-}
+    const data = await invoke<any>('get_popout_data', { label: windowLabel })
+    if (data?.type === 'chat' || data?.type === 'channel') {
+      popout = data as PopoutData
+    }
+  } catch (e) {
+    console.error('get_popout_data failed:', e)
+  }
 
-const popout = getPopoutData()
+  // Применяем тему из данных попаута
+  if (popout && (popout as any).theme) {
+    document.documentElement.setAttribute('data-theme', (popout as any).theme)
+  }
 
-// Прайминг Zustand-стора ДО первого рендера React через setState() (без invoke).
-// setActiveChat/setActiveChannel немедленно вызывают invoke() — до готовности Tauri IPC.
-// setState() только пишет данные, без IPC-вызовов.
-if (popout) {
+  if (!popout) {
+    // Данные не пришли — рендерим пустой App чтобы окно хотя бы открылось
+    ReactDOM.createRoot(document.getElementById('root')!).render(
+      <React.StrictMode><App /></React.StrictMode>
+    )
+    return
+  }
+
+  // Прайминг стора ДО рендера через setState() (без invoke — IPC только что отработал).
   if (popout.type === 'chat') {
     useStore.setState({
       activeChat: {
@@ -43,7 +67,7 @@ if (popout) {
       decryptedMessages: {},
       reactions: {},
     })
-  } else if (popout.type === 'channel') {
+  } else {
     useStore.setState({
       activeChannel: {
         channel_id: popout.channelId ?? '',
@@ -59,10 +83,12 @@ if (popout) {
       channelMessages: [],
     })
   }
+
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <ChatPopout data={popout} />
+    </React.StrictMode>
+  )
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    {popout ? <ChatPopout data={popout} /> : <App />}
-  </React.StrictMode>
-)
+bootstrap()

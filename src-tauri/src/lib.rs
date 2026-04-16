@@ -59,6 +59,8 @@ pub struct AppState {
     pub lan_tx: mpsc::UnboundedSender<(String, LanPacket)>,
     pub nostr: Mutex<Option<nostr::NostrHandle>>,
     pub p2p: Mutex<Option<p2p::P2pHandle>>,
+    /// Реестр данных попаут-окон: label → JSON с данными чата/канала
+    pub popout_registry: Mutex<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 // ─── Commands — Identity / Onboarding ────────────────────────────────────────
@@ -2081,6 +2083,7 @@ pub fn run() {
                 lan_tx: tx.clone(),
                 nostr: Mutex::new(Some(nostr_handle)),
                 p2p: Mutex::new(None),
+                popout_registry: Mutex::new(std::collections::HashMap::new()),
             });
 
             // 5. Запускаем LAN если есть идентичность
@@ -2201,6 +2204,7 @@ pub fn run() {
             set_tray_update_badge,
             open_chat_window,
             open_channel_window,
+            get_popout_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Soviet");
@@ -2215,12 +2219,12 @@ fn resolve_theme(state: &tauri::State<'_, AppState>) -> &'static str {
     }
 }
 
-/// Экранирует строку для вставки в JS-строку в кавычках
-fn js_escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-     .replace('\'', "\\'")
-     .replace('\r', "")
-     .replace('\n', "")
+/// Получить данные попаут-окна по label.
+/// Фронтенд вызывает это сразу после загрузки — данные уже в AppState (Rust),
+/// поэтому не зависим от initialization_script / sessionStorage / URL-параметров.
+#[tauri::command]
+fn get_popout_data(state: State<AppState>, label: String) -> Option<serde_json::Value> {
+    state.popout_registry.lock().unwrap().get(&label).cloned()
 }
 
 /// Открыть чат в отдельном окне
@@ -2238,25 +2242,24 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
         return Ok(());
     }
     let theme = resolve_theme(&state);
-    // Используем sessionStorage — в отличие от window.* переменных,
-    // sessionStorage переживает Vite HMR (HMR заменяет модули, но не перезагружает страницу).
-    // initialization_script запускается ДО Vite runtime, записывает в sessionStorage,
-    // а JS читает его уже после загрузки Vite.
-    let script = format!(
-        "document.documentElement.setAttribute('data-theme','{theme}');\
-         try{{sessionStorage.setItem('__soviet_popout__',\
-           JSON.stringify({{type:'chat',chatId:{chat_id},peerKey:'{pk}',peerName:'{pn}'}}\
-         ))}}catch(e){{}};",
-        theme = theme,
-        chat_id = chat_id,
-        pk = js_escape(&peer_key),
-        pn = js_escape(&peer_name),
-    );
+    // Сохраняем данные в AppState — фронтенд получит их через invoke('get_popout_data').
+    // Это надёжнее initialization_script (затирается Vite HMR),
+    // sessionStorage (недоступен до загрузки страницы) и URL query params
+    // (обрезаются WebviewUrl::App на Windows).
+    {
+        let mut reg = state.popout_registry.lock().unwrap();
+        reg.insert(safe_label.clone(), serde_json::json!({
+            "type": "chat",
+            "chatId": chat_id,
+            "peerKey": peer_key,
+            "peerName": peer_name,
+            "theme": theme,
+        }));
+    }
     tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
-        .initialization_script(&script)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -2273,20 +2276,19 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
         return Ok(());
     }
     let theme = resolve_theme(&state);
-    let script = format!(
-        "document.documentElement.setAttribute('data-theme','{theme}');\
-         try{{sessionStorage.setItem('__soviet_popout__',\
-           JSON.stringify({{type:'channel',channelId:'{cid}',channelName:'{cn}'}}\
-         ))}}catch(e){{}};",
-        theme = theme,
-        cid = js_escape(&channel_id),
-        cn = js_escape(&channel_name),
-    );
+    {
+        let mut reg = state.popout_registry.lock().unwrap();
+        reg.insert(label.clone(), serde_json::json!({
+            "type": "channel",
+            "channelId": channel_id,
+            "channelName": channel_name,
+            "theme": theme,
+        }));
+    }
     tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
-        .initialization_script(&script)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
