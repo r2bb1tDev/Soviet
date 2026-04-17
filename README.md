@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/badge/скачать-v2.5.10-blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v2.5.11-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
@@ -207,7 +207,7 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 - [x] v2.3 — исправлен краш при пересылке поста из канала, снижено свечение интерфейса, синхронизация аватарок, кликабельные ссылки, изменяемая ширина сайдбара, полная светлая тема
 - [x] v2.4 — P2P/Nostr для групп и личных чатов, открытие в новом окне, drag & drop файлов, статусы прочитано через все транспорты, пагинация истории, счётчик непрочитанных в трее
 - [x] v2.5 — SQLCipher (полное шифрование файла БД), защита от Sybil-атак (репутация P2P-узлов), code signing CI/CD (Windows + macOS)
-- [x] v2.5.10 — исправлено белое окно при открытии чата/канала в новом окне: стор инициализируется до первого рендера React, тема передаётся через initialization_script (работает на всех ОС)
+- [x] v2.5.11 — исправлено белое окно попаута (фон при загрузке), пропажа никнеймов (race condition contacts), утечка popout_registry при закрытии окна
 - [ ] v3.0 — многоустройственная синхронизация, Tor/VPN интеграция, мультиаккаунт
 
 ---
