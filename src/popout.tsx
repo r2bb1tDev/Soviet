@@ -65,6 +65,15 @@ function PopoutApp() {
       })
   }, [])
 
+  // Окно создаётся скрытым (.visible(false) в Rust).
+  // Показываем его только после того как данные загружены и React отрендерил
+  // контент — пользователь никогда не видит белый экран загрузки.
+  useEffect(() => {
+    if (popout || error) {
+      getCurrentWindow().show().catch(() => {})
+    }
+  }, [popout, error])
+
   if (error) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--text-primary)', background:'var(--bg-primary)' }}>
       Ошибка загрузки окна. Закройте и откройте снова.

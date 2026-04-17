@@ -2260,6 +2260,7 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
+        .visible(false)   // показываем из фронтенда после рендера (нет белого мигания)
         .build()
         .map_err(|e| e.to_string())?;
     // Очистка реестра при закрытии окна
@@ -2297,6 +2298,7 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
+        .visible(false)   // показываем из фронтенда после рендера (нет белого мигания)
         .build()
         .map_err(|e| e.to_string())?;
     // Очистка реестра при закрытии окна

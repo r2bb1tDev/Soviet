@@ -5,11 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/assets/logo/bear_icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Soviet</title>
+    <style>
+      /* Fallback: фон до загрузки JS/CSS — нет белого мигания */
+      html, body { margin: 0; padding: 0; background: #0A0A0A; }
+    </style>
     <script>
       ;(function(){
         var s = localStorage.getItem('soviet_theme');
         var dark = s === 'dark' || (!s && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        /* Обновляем фон сразу под тему, не ждём загрузки CSS */
+        document.documentElement.style.background = dark ? '#0A0A0A' : '#F4FFF7';
       })();
     </script>
   </head>
