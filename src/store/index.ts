@@ -319,31 +319,29 @@ export const useStore = create<AppStore>((set, get) => ({
   loadLanPeers: async () => {
     const lanPeers = await invoke<LanPeer[]>('get_lan_peers')
     set({ lanPeers })
-    // Помечаем LAN-контакты как online
-    const { contacts } = get()
-    set({
-      contacts: contacts.map(c => {
+    // Помечаем LAN-контакты как online (используем updater чтобы читать актуальный contacts)
+    set(s => ({
+      contacts: s.contacts.map(c => {
         const inLan = lanPeers.some(p => p.public_key === c.public_key)
         if (inLan && c.status === 'offline') return { ...c, status: 'online' as const }
         return c
       })
-    })
+    }))
   },
   loadP2pPeers: async () => {
     try {
       const p2pPeers = await invoke<P2pPeer[]>('get_p2p_peers')
       set({ p2pPeers })
-      // Помечаем P2P-контакты как online (если они не уже online через LAN)
-      const { contacts } = get()
-      set({
-        contacts: contacts.map(c => {
+      // Помечаем P2P-контакты как online (используем updater чтобы читать актуальный contacts)
+      set(s => ({
+        contacts: s.contacts.map(c => {
           const inP2p = p2pPeers.some(p =>
             p.soviet_pk === c.public_key
           )
           if (inP2p && c.status === 'offline') return { ...c, status: 'online' as const }
           return c
         })
-      })
+      }))
     } catch { /* P2P may not be ready yet */ }
   },
   addContact: async (pk, _nick) => {

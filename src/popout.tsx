@@ -66,12 +66,12 @@ function PopoutApp() {
   }, [])
 
   if (error) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--text-primary)' }}>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--text-primary)', background:'var(--bg-primary)' }}>
       Ошибка загрузки окна. Закройте и откройте снова.
     </div>
   )
   if (!popout) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--text-muted)' }}>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--text-muted)', background:'var(--bg-primary)' }}>
       Загрузка...
     </div>
   )

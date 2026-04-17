@@ -2256,12 +2256,20 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
             "theme": theme,
         }));
     }
-    tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("popout.html".into()))
+    let win = tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("popout.html".into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
         .build()
         .map_err(|e| e.to_string())?;
+    // Очистка реестра при закрытии окна
+    let label_for_close = safe_label.clone();
+    let app_for_close = app.clone();
+    win.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            app_for_close.state::<AppState>().popout_registry.lock().unwrap().remove(&label_for_close);
+        }
+    });
     Ok(())
 }
 
@@ -2285,12 +2293,20 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
             "theme": theme,
         }));
     }
-    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("popout.html".into()))
+    let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("popout.html".into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
         .build()
         .map_err(|e| e.to_string())?;
+    // Очистка реестра при закрытии окна
+    let label_for_close = label.clone();
+    let app_for_close = app.clone();
+    win.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            app_for_close.state::<AppState>().popout_registry.lock().unwrap().remove(&label_for_close);
+        }
+    });
     Ok(())
 }
 
