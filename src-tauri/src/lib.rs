@@ -1680,32 +1680,37 @@ async fn nostr_create_channel(name: String, about: String, state: State<'_, AppS
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     let name_clone = name.clone();
     let about_clone = about.clone();
-    // Extract cmd_tx BEFORE any await to avoid holding MutexGuard across await points
-    let cmd_tx = {
+    // Extract cmd_tx + my_pk BEFORE any await to avoid holding MutexGuard across await points
+    let (cmd_tx, my_pk) = {
         let guard = state.nostr.lock().unwrap();
-        guard.as_ref().ok_or("Nostr not ready")?.cmd_tx.clone()
+        let handle = guard.as_ref().ok_or("Nostr not ready")?;
+        (handle.cmd_tx.clone(), handle.pubkey_hex.clone())
     };
+    // Fire the create-channel command; the Nostr loop replies with the event id.
     cmd_tx.send(nostr::NostrCmd::CreateChannel { name, about, reply_tx })
         .await.map_err(|e| e.to_string())?;
-    let channel_id = reply_rx.await.map_err(|e| e.to_string())??;
+    // 3-second guard: if the Nostr loop is stuck (slow relay, starved runtime),
+    // we still want the UI to proceed. The channel will be rebroadcast via JoinChannel.
+    let channel_id = match tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        reply_rx,
+    ).await {
+        Ok(Ok(Ok(id))) => id,
+        Ok(Ok(Err(e))) => return Err(e),
+        Ok(Err(e)) => return Err(e.to_string()),
+        Err(_) => return Err("Nostr is busy, try again in a moment".into()),
+    };
 
+    // Persist locally (synchronous; no await while holding the mutex).
     {
         let db = state.db.0.lock().unwrap();
         storage::nostr_join_channel(&db, &channel_id, "").map_err(|e| e.to_string())?;
-        // Mark ourselves as creator immediately
-        let my_pk = state.nostr.lock().unwrap()
-            .as_ref().map(|n| n.pubkey_hex.clone()).unwrap_or_default();
         if !my_pk.is_empty() {
             storage::nostr_update_channel_meta(&db, &channel_id, &name_clone, &about_clone, "", &my_pk).ok();
         }
     }
-    let cmd_tx2 = {
-        let guard = state.nostr.lock().unwrap();
-        guard.as_ref().map(|n| n.cmd_tx.clone())
-    };
-    if let Some(tx) = cmd_tx2 {
-        let _ = tx.send(nostr::NostrCmd::JoinChannel { channel_id: channel_id.clone() }).await;
-    }
+    // Fire-and-forget subscribe so incoming messages stream in. Not awaited on a result.
+    let _ = cmd_tx.send(nostr::NostrCmd::JoinChannel { channel_id: channel_id.clone() }).await;
     Ok(channel_id)
 }
 

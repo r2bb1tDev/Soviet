@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/badge/скачать-v2.5.13-blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v2.5.14-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
@@ -210,6 +210,7 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 - [x] v2.5.11 — исправлено белое окно попаута (фон при загрузке), пропажа никнеймов (race condition contacts), утечка popout_registry при закрытии окна
 - [x] v2.5.12 — окончательный фикс белого окна: попаут создаётся скрытым, показывается после рендера React (нет белого мигания при любых условиях)
 - [x] v2.5.13 — хотфикс: откат `.visible(false)` (ломал открытие окна на Windows); защита от белого мигания теперь полностью на inline `<style>` в `popout.html`
+- [x] v2.5.14 — исправлено зависание создания канала: multi-thread tokio для Nostr (команды не блокируются обработкой входящих событий), 5-сек таймаут на подключение к relay, 3-сек таймаут на ответ при создании канала
 - [ ] v3.0 — многоустройственная синхронизация, Tor/VPN интеграция, мультиаккаунт
 
 ---

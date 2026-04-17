@@ -168,7 +168,10 @@ pub fn start(
     let pubkey_hex_ret = pubkey_hex.clone();
 
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
+        // Multi-thread runtime so the command loop can't be starved by
+        // blocking DB mutex calls inside reader tasks (on_relay_msg).
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .unwrap();
@@ -202,8 +205,21 @@ async fn relay_loop(
     let mut relay_senders: Vec<mpsc::UnboundedSender<String>> = Vec::new();
 
     for &url in DEFAULT_RELAYS {
-        match connect_async(url).await {
-            Ok((ws, _)) => {
+        // 5-second timeout on connect — prevents dead relays from freezing startup.
+        let connect_res = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            connect_async(url),
+        ).await;
+        match connect_res {
+            Err(_) => {
+                log::warn!("Nostr: relay {} connect timed out", url);
+                continue;
+            }
+            Ok(Err(e)) => {
+                log::warn!("Nostr: relay {} error: {}", url, e);
+                continue;
+            }
+            Ok(Ok((ws, _))) => {
                 let (mut write, mut read) = ws.split();
                 let (wtx, mut wrx) = mpsc::unbounded_channel::<String>();
                 relay_senders.push(wtx);
@@ -228,7 +244,6 @@ async fn relay_loop(
 
                 log::info!("Nostr: connected to {}", url);
             }
-            Err(e) => log::warn!("Nostr: relay {} error: {}", url, e),
         }
     }
 
