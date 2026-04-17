@@ -2261,11 +2261,22 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
             "theme": theme,
         }));
     }
-    // Окно видимо сразу — белое мигание устраняется inline <style> в popout.html
+    // Явно включаем декорации (title bar + X) — на некоторых конфигах Windows
+    // без этого кнопки закрытия нет, пользователь «застревает» в окне.
+    // background_color задаёт фон окна на уровне ОС ДО загрузки WebView — защита
+    // от белого мигания даже если popout.html не успел отдать inline <style>.
+    let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
     let win = tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("popout.html".into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
+        .decorations(true)
+        .resizable(true)
+        .closable(true)
+        .minimizable(true)
+        .maximizable(true)
+        .focused(true)
+        .background_color(tauri::webview::Color(bg.0, bg.1, bg.2, bg.3))
         .build()
         .map_err(|e| e.to_string())?;
     // Очистка реестра при закрытии окна
@@ -2299,11 +2310,21 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
             "theme": theme,
         }));
     }
-    // Окно видимо сразу — белое мигание устраняется inline <style> в popout.html
+    // Явно включаем декорации (title bar + X) — на некоторых конфигах Windows
+    // без этого кнопки закрытия нет, пользователь «застревает» в окне.
+    // background_color задаёт фон окна на уровне ОС ДО загрузки WebView.
+    let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
     let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("popout.html".into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
+        .decorations(true)
+        .resizable(true)
+        .closable(true)
+        .minimizable(true)
+        .maximizable(true)
+        .focused(true)
+        .background_color(tauri::webview::Color(bg.0, bg.1, bg.2, bg.3))
         .build()
         .map_err(|e| e.to_string())?;
     // Очистка реестра при закрытии окна
