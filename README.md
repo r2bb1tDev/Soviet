@@ -211,7 +211,12 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 - [x] v2.5.12 — окончательный фикс белого окна: попаут создаётся скрытым, показывается после рендера React (нет белого мигания при любых условиях)
 - [x] v2.5.13 — хотфикс: откат `.visible(false)` (ломал открытие окна на Windows); защита от белого мигания теперь полностью на inline `<style>` в `popout.html`
 - [x] v2.5.14 — исправлено зависание создания канала: multi-thread tokio для Nostr (команды не блокируются обработкой входящих событий), 5-сек таймаут на подключение к relay, 3-сек таймаут на ответ при создании канала
-- [ ] v3.0 — многоустройственная синхронизация, Tor/VPN интеграция, мультиаккаунт
+- [ ] v2.6 — **Multi-device identity (ПК):** экспорт/импорт identity через QR и seed-строку (Argon2id + ChaCha20-Poly1305), один аккаунт на двух ПК, passphrase на старте вместо OS keyring, dedup самого себя в Nostr DM, миграция со старого формата
+- [ ] v2.7 — **Адаптивный UI:** медиа-запросы под узкий экран (сайдбар → полноэкранный список, bottom-tabs, swipe-назад), отключение popout/трея на мобильных, подготовка компонентов к touch
+- [ ] v2.8 — **Android-сборка:** `cargo tauri android init`, GitHub Actions на `ubuntu-latest`, unsigned APK в Releases, `tauri-plugin-biometric` для пассфразы, Android Foreground Service для фоновой доставки
+- [ ] v2.9 — **iOS-сборка (unsigned):** `cargo tauri ios init`, GitHub Actions на `macos-14`, unsigned билд для симулятора (TestFlight/App Store — при появлении Apple Developer $99/год)
+- [ ] v3.0 — **Device-to-device history sync:** шифрованный дамп SQLite передаётся между своими устройствами через P2P/LAN при импорте, аккаунт master-key + device sub-keys (NIP-26 delegation для Nostr)
+- [ ] v3.1+ — Tor/VPN интеграция, encrypted backup в Nostr, мультиаккаунт, биометрическая разблокировка
 
 ---
 
