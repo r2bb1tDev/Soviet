@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/badge/скачать-v2.5.14-blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v2.5.15-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
@@ -211,6 +211,7 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 - [x] v2.5.12 — окончательный фикс белого окна: попаут создаётся скрытым, показывается после рендера React (нет белого мигания при любых условиях)
 - [x] v2.5.13 — хотфикс: откат `.visible(false)` (ломал открытие окна на Windows); защита от белого мигания теперь полностью на inline `<style>` в `popout.html`
 - [x] v2.5.14 — исправлено зависание создания канала: multi-thread tokio для Nostr (команды не блокируются обработкой входящих событий), 5-сек таймаут на подключение к relay, 3-сек таймаут на ответ при создании канала
+- [x] v2.5.15 — **починены автоматические обновления:** новая пара minisign-ключей для updater (прошлая была без доступа к секретам в GitHub Actions → `latest.json` не генерировался, клиент всегда получал 404). **⚠️ Одноразовая переустановка:** все пользователи должны скачать v2.5.15 вручную один раз — дальше обновления приходят автоматически
 - [ ] v2.6 — **Multi-device identity (ПК):** экспорт/импорт identity через QR и seed-строку (Argon2id + ChaCha20-Poly1305), один аккаунт на двух ПК, passphrase на старте вместо OS keyring, dedup самого себя в Nostr DM, миграция со старого формата
 - [ ] v2.7 — **Адаптивный UI:** медиа-запросы под узкий экран (сайдбар → полноэкранный список, bottom-tabs, swipe-назад), отключение popout/трея на мобильных, подготовка компонентов к touch
 - [ ] v2.8 — **Android-сборка:** `cargo tauri android init`, GitHub Actions на `ubuntu-latest`, unsigned APK в Releases, `tauri-plugin-biometric` для пассфразы, Android Foreground Service для фоновой доставки
