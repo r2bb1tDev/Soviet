@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Soviet",
-  "version": "2.5.18",
+  "version": "2.5.19",
   "identifier": "app.soviet.messenger",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -59,7 +59,7 @@
         "https://github.com/r2bb1tDev/Soviet/releases/latest/download/latest.json"
       ],
       "dialog": false,
-      "pubkey": "ZFc1MGNuVnpkR1ZrSUdOdmJXMWxiblE2SUcxcGJtbHphV2R1SUhCMVlteHBZeUJyWlhrNklEZEdNREZFTlVaQlFUZzBPVVJFTmtJS1VsZFNjak5WYlc4cmRGVkNabmxLWm5vM2JHUkVVMVp0UXpJNUszbGpjMDVSWWpkb0wxcFVlREJ5ZFZoSlFqaEtUazlEWlVwVlJVUUs="
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdGMDFENUZBQTg0OURENkIKUldScjNVbW8rdFVCZnlKZno3bGREU1ZtQzI5K3ljc05RYjdoL1pUeDBydVhJQjhKTk9DZUpVRUQK"
     }
   }
 }
