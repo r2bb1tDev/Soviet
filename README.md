@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/badge/скачать-v2.5.19-blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v2.5.20-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
@@ -214,7 +214,7 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 - [x] v2.5.15 — **починены автоматические обновления:** новая пара minisign-ключей для updater (прошлая была без доступа к секретам в GitHub Actions → `latest.json` не генерировался, клиент всегда получал 404). **⚠️ Одноразовая переустановка:** все пользователи должны скачать v2.5.15 вручную один раз — дальше обновления приходят автоматически
 - [x] v2.5.16 — фикс декораций popout (кнопка ✕ + `background_color` на уровне ОС); кнопка 🪟 «Открыть в новом окне» прямо в шапке чата/канала
 - [x] v2.5.17 — **архитектурный фикс popout-окон:** popout теперь использует тот же `index.html` что и главное окно (отдельный `popout.html` на части Windows-конфигов WebView2 отдавал чёрный пустой экран — curl возвращал HTML, WebView не рендерил). Метка окна приходит через `initialization_script` → `window.__sovietPopoutLabel`, `main.tsx` рендерит `<PopoutRoot/>` вместо `<App/>`. Глобальные `error`/`unhandledrejection` fallback-рендеры гарантируют что пользователь всегда видит кнопку «Закрыть» — не «застревает» в пустом окне
-- [x] v2.5.19 — **критфикс автообновлений:** `latest.json` и `.sig` файлы не генерировались с v2.5.11 (secret подписи имел пароль, который был утрачен; `tauri-action` молча скипал подпись). Новая пара ключей **без пароля** + CI-шаг проверяет наличие secret до сборки. **⚠️ Одноразовая переустановка вручную** из Releases
+- [x] v2.5.20 — **критфикс автообновлений:** `latest.json` и `.sig` файлы не генерировались с v2.5.11 (secret подписи имел пароль, который был утрачен; `tauri-action` молча скипал подпись). Новая пара ключей **без пароля** + CI-шаг проверяет наличие secret до сборки. **⚠️ Одноразовая переустановка вручную** из Releases
 - [ ] v2.6 — **Multi-device identity (ПК):** экспорт/импорт identity через QR и seed-строку (Argon2id + ChaCha20-Poly1305), один аккаунт на двух ПК, passphrase на старте вместо OS keyring, dedup самого себя в Nostr DM, миграция со старого формата
 - [ ] v2.7 — **Адаптивный UI:** медиа-запросы под узкий экран (сайдбар → полноэкранный список, bottom-tabs, swipe-назад), отключение popout/трея на мобильных, подготовка компонентов к touch
 - [ ] v2.8 — **Android-сборка:** `cargo tauri android init`, GitHub Actions на `ubuntu-latest`, unsigned APK в Releases, `tauri-plugin-biometric` для пассфразы, Android Foreground Service для фоновой доставки

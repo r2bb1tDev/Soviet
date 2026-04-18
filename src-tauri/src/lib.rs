@@ -2260,6 +2260,84 @@ fn resolve_theme(state: &tauri::State<'_, AppState>) -> &'static str {
     }
 }
 
+/// Диагностический init-script для popout-окон.
+/// Выполняется в document_start — до загрузки HTML и модульных скриптов.
+/// Делает три вещи:
+///   1. Выставляет `window.__sovietPopoutLabel` чтобы main.tsx рендерил <PopoutRoot/>
+///   2. Сразу после DOMContentLoaded рисует аварийный UI в <body> (видимый баннер с label,
+///      кнопкой Close, и областью куда main.tsx позже смонтирует React). Если React
+///      успеет смонтироваться в #root — наш оверлей остаётся сверху как статус-строка.
+///   3. Watchdog: если через 8 сек #root всё ещё пустой — показывает диагностику и кнопку Close.
+///
+/// Это гарантирует что popout-окно НИКОГДА не будет полностью чёрным/пустым.
+fn build_popout_init_script(label: &str, title: &str) -> String {
+    let label_json  = serde_json::to_string(label).unwrap_or_else(|_| "\"\"".into());
+    let title_json  = serde_json::to_string(title).unwrap_or_else(|_| "\"\"".into());
+    format!(r#"
+;(function(){{
+  try {{
+    window.__sovietPopoutLabel = {label_json};
+    var popoutTitle = {title_json};
+
+    function mountDiag() {{
+      try {{
+        if (document.getElementById('__soviet_popout_bar')) return;
+        var bar = document.createElement('div');
+        bar.id = '__soviet_popout_bar';
+        bar.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:6px 12px;background:#16a34a;color:#fff;font:12px/1.3 system-ui,sans-serif;z-index:2147483647;display:flex;justify-content:space-between;align-items:center;';
+        var lbl = document.createElement('span');
+        lbl.textContent = '● ' + popoutTitle + ' (' + window.__sovietPopoutLabel + ')';
+        var btn = document.createElement('button');
+        btn.textContent = '✕ Закрыть';
+        btn.style.cssText = 'background:#dc2626;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;';
+        btn.onclick = function() {{
+          try {{
+            if (window.__TAURI__ && window.__TAURI__.window) {{
+              window.__TAURI__.window.getCurrentWindow().close(); return;
+            }}
+          }} catch(e) {{}}
+          try {{ window.close(); }} catch(e) {{}}
+        }};
+        bar.appendChild(lbl); bar.appendChild(btn);
+        (document.body || document.documentElement).appendChild(bar);
+        // Отступ для #root чтобы баннер не перекрывал содержимое
+        var root = document.getElementById('root');
+        if (root) root.style.paddingTop = '32px';
+      }} catch(e) {{ console.error('mountDiag failed:', e); }}
+    }}
+
+    if (document.readyState === 'loading') {{
+      document.addEventListener('DOMContentLoaded', mountDiag);
+    }} else {{
+      mountDiag();
+    }}
+
+    // Watchdog — через 8 сек если React не смонтировался, пишем ошибку в #root
+    setTimeout(function() {{
+      var root = document.getElementById('root');
+      if (root && root.children.length === 0) {{
+        root.innerHTML = '<div style="padding:40px;text-align:center;font:14px system-ui;">' +
+          '<div style="font-size:48px;margin-bottom:12px">⚠️</div>' +
+          '<div style="font-weight:600;margin-bottom:8px">React не смонтировался</div>' +
+          '<div style="opacity:0.7;font-size:12px;max-width:400px;margin:0 auto">' +
+          'JS-бандл (main-*.js) не смог инициализировать приложение. ' +
+          'Откройте DevTools (Ctrl+Shift+I) → Console чтобы увидеть ошибку, ' +
+          'либо закройте окно кнопкой выше.' +
+          '</div></div>';
+      }}
+    }}, 8000);
+
+    console.log('[SOVIET popout] init_script ran, label =', window.__sovietPopoutLabel);
+  }} catch(e) {{
+    console.error('[SOVIET popout] init_script fatal:', e);
+    try {{
+      document.body.innerHTML = '<div style="padding:20px;color:#f00;font:14px monospace">POPOUT INIT FAILED: ' + (e.message || e) + '</div>';
+    }} catch(e2) {{}}
+  }}
+}})();
+"#)
+}
+
 /// Получить данные попаут-окна по label.
 /// Фронтенд вызывает это сразу после загрузки — данные уже в AppState (Rust),
 /// поэтому не зависим от initialization_script / sessionStorage / URL-параметров.
@@ -2302,20 +2380,10 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
     // background_color задаёт фон окна на уровне ОС ДО загрузки WebView — защита
     // от белого мигания даже если popout.html не успел отдать inline <style>.
     let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
-    // Popout использует тот же index.html что и главное окно — работающий на 100%.
-    // Через initialization_script выставляем window.__sovietPopoutLabel; main.tsx
-    // видит флаг и рендерит <PopoutRoot/> вместо <App/>.
-    let init_script = format!(
-        r#"
-        (function(){{
-          try {{
-            window.__sovietPopoutLabel = {label_json};
-            console.log('[SOVIET popout] label =', window.__sovietPopoutLabel);
-          }} catch(e) {{ console.error('popout init failed:', e); }}
-        }})();
-    "#,
-        label_json = serde_json::to_string(&safe_label).unwrap_or_else(|_| "\"\"".into())
-    );
+    // Popout использует тот же index.html что и главное окно.
+    // Init-script выставляет флаг для main.tsx И рисует diagnostic UI сразу,
+    // чтобы окно не было чёрным пустым даже если main-bundle почему-то не загрузится.
+    let init_script = build_popout_init_script(&safe_label, &peer_name);
     let win = tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
@@ -2366,17 +2434,7 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
     // без этого кнопки закрытия нет, пользователь «застревает» в окне.
     // background_color задаёт фон окна на уровне ОС ДО загрузки WebView.
     let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
-    let init_script = format!(
-        r#"
-        (function(){{
-          try {{
-            window.__sovietPopoutLabel = {label_json};
-            console.log('[SOVIET popout] label =', window.__sovietPopoutLabel);
-          }} catch(e) {{ console.error('popout init failed:', e); }}
-        }})();
-    "#,
-        label_json = serde_json::to_string(&label).unwrap_or_else(|_| "\"\"".into())
-    );
+    let init_script = build_popout_init_script(&label, &channel_name);
     let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
