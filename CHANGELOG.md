@@ -5,6 +5,17 @@
 
 ---
 
+## [2.5.21] — 2026-04-18
+
+**Popout теперь через URL hash fragment — НЕ зависит от Tauri initialization_script**
+
+### Исправлено
+- **v2.5.20 по-прежнему чёрное окно** — ни зелёный баннер, ни watchdog из `initialization_script` не появлялись. Вывод: на Windows WebView2 для secondary-окон `initialization_script` в Tauri v2 **вообще не срабатывает**. Переделано радикально — popout-окна открываются с URL вида `index.html#popout=<label>`. Inline-скрипт прямо в `<head>` тегах `index.html` парсит `location.hash`, выставляет `window.__sovietPopoutLabel` и рисует зелёный статус-баннер с красной кнопкой «✕ Закрыть». Это обычный HTML — выполняется при парсинге страницы, не может «не сработать».
+- **Watchdog 8 сек** — если React не смонтировался, inline-скрипт сам пишет в `#root` сообщение об ошибке с инструкцией открыть DevTools.
+- **main.tsx fallback** — дополнительно парсит `location.hash` сам, на случай если inline-скрипт не успел выставить `window.__sovietPopoutLabel`.
+
+---
+
 ## [2.5.20] — 2026-04-18
 
 **Popout теперь ГАРАНТИРОВАННО не может быть чёрным пустым окном**

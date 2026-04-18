@@ -7,6 +7,18 @@ import './styles/global.css'
 // Popout-окна открываются через тот же index.html — Tauri выставляет
 // window.__sovietPopoutLabel через initialization_script. Если флаг есть,
 // вместо главного <App/> рендерим PopoutRoot (чат/канал в отдельном окне).
+// Popout-флаг устанавливается inline-скриптом в index.html при парсинге location.hash
+// ("index.html#popout=chat-123"). Дополнительно парсим hash сами на случай если
+// inline не успел — чтобы точно поймать.
+const __hashPopout = (() => {
+  try {
+    const m = (location.hash || '').match(/popout=([^&]+)/)
+    return m ? decodeURIComponent(m[1]) : ''
+  } catch { return '' }
+})()
+if (__hashPopout && !(window as any).__sovietPopoutLabel) {
+  ;(window as any).__sovietPopoutLabel = __hashPopout
+}
 const isPopout = typeof (window as any).__sovietPopoutLabel === 'string'
   && (window as any).__sovietPopoutLabel.length > 0
 

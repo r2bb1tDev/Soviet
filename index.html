@@ -1,17 +1,76 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/assets/logo/bear_icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Soviet</title>
-    <!-- Применяем тему СИНХРОННО до первого рендера — убирает белую вспышку.
-         Тема попаут-окна применяется через invoke('get_popout_data') в main.tsx. -->
+    <!-- Тема синхронно до первого рендера — нет белой вспышки -->
     <script>
       ;(function(){
         var s = localStorage.getItem('soviet_theme');
         var dark = s === 'dark' || (!s && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        document.documentElement.style.background = dark ? '#0A0A0A' : '#F4FFF7';
+        document.documentElement.style.color      = dark ? '#F4FFF7' : '#0A0A0A';
+      })();
+    </script>
+    <!-- POPOUT DETECTION — НЕ ЗАВИСИТ от Tauri initialization_script!
+         Popout-окна открываются с URL "index.html#popout=<label>". Этот inline-скрипт
+         разбирает location.hash ВСЕГДА (это обычный HTML, выполняется при парсинге),
+         выставляет window.__sovietPopoutLabel и рисует видимый баннер с кнопкой Close
+         СРАЗУ, чтобы окно никогда не было чёрным пустым — даже если main-bundle
+         почему-то не загрузится. -->
+    <script>
+      ;(function(){
+        try {
+          var m = (location.hash || '').match(/popout=([^&]+)/);
+          if (!m) return;
+          var label = decodeURIComponent(m[1]);
+          window.__sovietPopoutLabel = label;
+          console.log('[SOVIET popout] detected label =', label);
+
+          function mountBanner() {
+            if (document.getElementById('__soviet_popout_bar')) return;
+            var bar = document.createElement('div');
+            bar.id = '__soviet_popout_bar';
+            bar.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:6px 10px;background:#16a34a;color:#fff;font:12px/1.3 system-ui,sans-serif;z-index:2147483647;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 4px rgba(0,0,0,0.3);';
+            var lbl = document.createElement('span');
+            lbl.textContent = '● ' + label;
+            lbl.style.cssText = 'font-weight:500;';
+            var btn = document.createElement('button');
+            btn.textContent = '✕ Закрыть';
+            btn.style.cssText = 'background:#dc2626;color:#fff;border:0;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;';
+            btn.onclick = function() {
+              try { if (window.__TAURI__ && window.__TAURI__.window) { window.__TAURI__.window.getCurrentWindow().close(); return; } } catch(e) {}
+              try { window.close(); } catch(e) {}
+            };
+            bar.appendChild(lbl); bar.appendChild(btn);
+            (document.body || document.documentElement).appendChild(bar);
+            var root = document.getElementById('root');
+            if (root) root.style.paddingTop = '32px';
+          }
+
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', mountBanner);
+          } else {
+            mountBanner();
+          }
+
+          // Watchdog — 8 сек; если React не появился в #root, показываем диагностику
+          setTimeout(function(){
+            var root = document.getElementById('root');
+            if (!root || root.children.length > 0) return;
+            root.innerHTML = '<div style="padding:60px 20px;text-align:center;font:14px system-ui;">' +
+              '<div style="font-size:48px;margin-bottom:12px">⚠️</div>' +
+              '<div style="font-weight:600;margin-bottom:8px">React не смонтировался за 8 сек</div>' +
+              '<div style="opacity:0.7;font-size:12px;max-width:400px;margin:0 auto">' +
+              'JS-бандл (main-*.js) не загрузился или упал. Ctrl+Shift+I → Console для деталей. Используйте кнопку «Закрыть» выше.' +
+              '</div></div>';
+          }, 8000);
+        } catch(e) {
+          console.error('[SOVIET popout] detection failed:', e);
+        }
       })();
     </script>
   </head>

@@ -2384,7 +2384,11 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
     // Init-script выставляет флаг для main.tsx И рисует diagnostic UI сразу,
     // чтобы окно не было чёрным пустым даже если main-bundle почему-то не загрузится.
     let init_script = build_popout_init_script(&safe_label, &peer_name);
-    let win = tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
+    // Hash fragment с label — inline-скрипт в index.html парсит его НЕЗАВИСИМО от Tauri.
+    // Это работает даже если initialization_script почему-то не срабатывает на
+    // secondary webview на Windows WebView2.
+    let url = format!("index.html#popout={}", safe_label);
+    let win = tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App(url.into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
@@ -2435,7 +2439,8 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
     // background_color задаёт фон окна на уровне ОС ДО загрузки WebView.
     let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
     let init_script = build_popout_init_script(&label, &channel_name);
-    let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+    let url = format!("index.html#popout={}", label);
+    let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
