@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useStore, Message, Contact, Chat } from '../store'
 import ContactProfile from './ContactProfile'
 import { playClickSound, isSoundEnabled } from '../utils/sounds'
@@ -553,20 +552,6 @@ export default function ChatWindow() {
           </div>
 
         <div style={s.headerActions}>
-          {getCurrentWindow().label === 'main' && activeChat && (
-            <button className="btn-icon" title="Открыть в новом окне" onClick={() => {
-              invoke('open_chat_window', {
-                chatId: activeChat.id,
-                peerKey: activeChat.peer_key ?? '',
-                peerName: isGroup ? (activeChat.group_name ?? 'Группа') : (contactForChat?.local_alias ?? contactForChat?.nickname ?? 'Чат'),
-              }).catch(e => console.error('open_chat_window failed:', e))
-            }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M15 3h6v6"/><path d="M10 14L21 3"/>
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-              </svg>
-            </button>
-          )}
           {!isGroup && contactForChat && (
             <button className="btn-icon" title="Профиль" onClick={() => setShowProfile(true)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

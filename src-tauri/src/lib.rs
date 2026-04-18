@@ -59,8 +59,6 @@ pub struct AppState {
     pub lan_tx: mpsc::UnboundedSender<(String, LanPacket)>,
     pub nostr: Mutex<Option<nostr::NostrHandle>>,
     pub p2p: Mutex<Option<p2p::P2pHandle>>,
-    /// Реестр данных попаут-окон: label → JSON с данными чата/канала
-    pub popout_registry: Mutex<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 // ─── Commands — Identity / Onboarding ────────────────────────────────────────
@@ -2124,7 +2122,6 @@ pub fn run() {
                 lan_tx: tx.clone(),
                 nostr: Mutex::new(Some(nostr_handle)),
                 p2p: Mutex::new(None),
-                popout_registry: Mutex::new(std::collections::HashMap::new()),
             });
 
             // 5. Запускаем LAN если есть идентичность
@@ -2243,9 +2240,6 @@ pub fn run() {
             search_messages,
             sign_out,
             set_tray_update_badge,
-            open_chat_window,
-            open_channel_window,
-            get_popout_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Soviet");
@@ -2260,211 +2254,6 @@ fn resolve_theme(state: &tauri::State<'_, AppState>) -> &'static str {
     }
 }
 
-/// Диагностический init-script для popout-окон.
-/// Выполняется в document_start — до загрузки HTML и модульных скриптов.
-/// Делает три вещи:
-///   1. Выставляет `window.__sovietPopoutLabel` чтобы main.tsx рендерил <PopoutRoot/>
-///   2. Сразу после DOMContentLoaded рисует аварийный UI в <body> (видимый баннер с label,
-///      кнопкой Close, и областью куда main.tsx позже смонтирует React). Если React
-///      успеет смонтироваться в #root — наш оверлей остаётся сверху как статус-строка.
-///   3. Watchdog: если через 8 сек #root всё ещё пустой — показывает диагностику и кнопку Close.
-///
-/// Это гарантирует что popout-окно НИКОГДА не будет полностью чёрным/пустым.
-fn build_popout_init_script(label: &str, title: &str) -> String {
-    let label_json  = serde_json::to_string(label).unwrap_or_else(|_| "\"\"".into());
-    let title_json  = serde_json::to_string(title).unwrap_or_else(|_| "\"\"".into());
-    format!(r#"
-;(function(){{
-  try {{
-    window.__sovietPopoutLabel = {label_json};
-    var popoutTitle = {title_json};
-
-    function mountDiag() {{
-      try {{
-        if (document.getElementById('__soviet_popout_bar')) return;
-        var bar = document.createElement('div');
-        bar.id = '__soviet_popout_bar';
-        bar.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:6px 12px;background:#16a34a;color:#fff;font:12px/1.3 system-ui,sans-serif;z-index:2147483647;display:flex;justify-content:space-between;align-items:center;';
-        var lbl = document.createElement('span');
-        lbl.textContent = '● ' + popoutTitle + ' (' + window.__sovietPopoutLabel + ')';
-        var btn = document.createElement('button');
-        btn.textContent = '✕ Закрыть';
-        btn.style.cssText = 'background:#dc2626;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;';
-        btn.onclick = function() {{
-          try {{
-            if (window.__TAURI__ && window.__TAURI__.window) {{
-              window.__TAURI__.window.getCurrentWindow().close(); return;
-            }}
-          }} catch(e) {{}}
-          try {{ window.close(); }} catch(e) {{}}
-        }};
-        bar.appendChild(lbl); bar.appendChild(btn);
-        (document.body || document.documentElement).appendChild(bar);
-        // Отступ для #root чтобы баннер не перекрывал содержимое
-        var root = document.getElementById('root');
-        if (root) root.style.paddingTop = '32px';
-      }} catch(e) {{ console.error('mountDiag failed:', e); }}
-    }}
-
-    if (document.readyState === 'loading') {{
-      document.addEventListener('DOMContentLoaded', mountDiag);
-    }} else {{
-      mountDiag();
-    }}
-
-    // Watchdog — через 8 сек если React не смонтировался, пишем ошибку в #root
-    setTimeout(function() {{
-      var root = document.getElementById('root');
-      if (root && root.children.length === 0) {{
-        root.innerHTML = '<div style="padding:40px;text-align:center;font:14px system-ui;">' +
-          '<div style="font-size:48px;margin-bottom:12px">⚠️</div>' +
-          '<div style="font-weight:600;margin-bottom:8px">React не смонтировался</div>' +
-          '<div style="opacity:0.7;font-size:12px;max-width:400px;margin:0 auto">' +
-          'JS-бандл (main-*.js) не смог инициализировать приложение. ' +
-          'Откройте DevTools (Ctrl+Shift+I) → Console чтобы увидеть ошибку, ' +
-          'либо закройте окно кнопкой выше.' +
-          '</div></div>';
-      }}
-    }}, 8000);
-
-    console.log('[SOVIET popout] init_script ran, label =', window.__sovietPopoutLabel);
-  }} catch(e) {{
-    console.error('[SOVIET popout] init_script fatal:', e);
-    try {{
-      document.body.innerHTML = '<div style="padding:20px;color:#f00;font:14px monospace">POPOUT INIT FAILED: ' + (e.message || e) + '</div>';
-    }} catch(e2) {{}}
-  }}
-}})();
-"#)
-}
-
-/// Получить данные попаут-окна по label.
-/// Фронтенд вызывает это сразу после загрузки — данные уже в AppState (Rust),
-/// поэтому не зависим от initialization_script / sessionStorage / URL-параметров.
-#[tauri::command]
-fn get_popout_data(state: State<AppState>, label: String) -> Option<serde_json::Value> {
-    state.popout_registry.lock().unwrap().get(&label).cloned()
-}
-
-/// Открыть чат в отдельном окне
-#[tauri::command]
-fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: i64, peer_key: String, peer_name: String) -> Result<(), String> {
-    let safe_label: String = if chat_id > 0 {
-        format!("chat-{}", chat_id)
-    } else {
-        let id: String = peer_key.chars().filter(|c| c.is_ascii_alphanumeric()).take(16).collect();
-        format!("chat-{}", id)
-    };
-    if let Some(w) = app.get_webview_window(&safe_label) {
-        w.show().ok();
-        w.set_focus().ok();
-        return Ok(());
-    }
-    let theme = resolve_theme(&state);
-    // Сохраняем данные в AppState — фронтенд получит их через invoke('get_popout_data').
-    // Это надёжнее initialization_script (затирается Vite HMR),
-    // sessionStorage (недоступен до загрузки страницы) и URL query params
-    // (обрезаются WebviewUrl::App на Windows).
-    {
-        let mut reg = state.popout_registry.lock().unwrap();
-        reg.insert(safe_label.clone(), serde_json::json!({
-            "type": "chat",
-            "chatId": chat_id,
-            "peerKey": peer_key,
-            "peerName": peer_name,
-            "theme": theme,
-        }));
-    }
-    // Явно включаем декорации (title bar + X) — на некоторых конфигах Windows
-    // без этого кнопки закрытия нет, пользователь «застревает» в окне.
-    // background_color задаёт фон окна на уровне ОС ДО загрузки WebView — защита
-    // от белого мигания даже если popout.html не успел отдать inline <style>.
-    let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
-    // Popout использует тот же index.html что и главное окно.
-    // Init-script выставляет флаг для main.tsx И рисует diagnostic UI сразу,
-    // чтобы окно не было чёрным пустым даже если main-bundle почему-то не загрузится.
-    let init_script = build_popout_init_script(&safe_label, &peer_name);
-    // Hash fragment с label — inline-скрипт в index.html парсит его НЕЗАВИСИМО от Tauri.
-    // Это работает даже если initialization_script почему-то не срабатывает на
-    // secondary webview на Windows WebView2.
-    let url = format!("index.html#popout={}", safe_label);
-    let win = tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App(url.into()))
-        .title(&peer_name)
-        .inner_size(480.0, 620.0)
-        .min_inner_size(360.0, 400.0)
-        .decorations(true)
-        .resizable(true)
-        .closable(true)
-        .minimizable(true)
-        .maximizable(true)
-        .focused(true)
-        .background_color(tauri::webview::Color(bg.0, bg.1, bg.2, bg.3))
-        .initialization_script(&init_script)
-        .devtools(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-    // Очистка реестра при закрытии окна
-    let label_for_close = safe_label.clone();
-    let app_for_close = app.clone();
-    win.on_window_event(move |event| {
-        if let tauri::WindowEvent::Destroyed = event {
-            app_for_close.state::<AppState>().popout_registry.lock().unwrap().remove(&label_for_close);
-        }
-    });
-    Ok(())
-}
-
-/// Открыть канал в отдельном окне
-#[tauri::command]
-fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channel_id: String, channel_name: String) -> Result<(), String> {
-    let safe_id: String = channel_id.chars().filter(|c| c.is_ascii_alphanumeric()).take(16).collect();
-    let label = format!("chan-{}", safe_id);
-    if let Some(w) = app.get_webview_window(&label) {
-        w.show().ok();
-        w.set_focus().ok();
-        return Ok(());
-    }
-    let theme = resolve_theme(&state);
-    {
-        let mut reg = state.popout_registry.lock().unwrap();
-        reg.insert(label.clone(), serde_json::json!({
-            "type": "channel",
-            "channelId": channel_id,
-            "channelName": channel_name,
-            "theme": theme,
-        }));
-    }
-    // Явно включаем декорации (title bar + X) — на некоторых конфигах Windows
-    // без этого кнопки закрытия нет, пользователь «застревает» в окне.
-    // background_color задаёт фон окна на уровне ОС ДО загрузки WebView.
-    let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
-    let init_script = build_popout_init_script(&label, &channel_name);
-    let url = format!("index.html#popout={}", label);
-    let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
-        .title(&channel_name)
-        .inner_size(560.0, 650.0)
-        .min_inner_size(400.0, 400.0)
-        .decorations(true)
-        .resizable(true)
-        .closable(true)
-        .minimizable(true)
-        .maximizable(true)
-        .focused(true)
-        .background_color(tauri::webview::Color(bg.0, bg.1, bg.2, bg.3))
-        .initialization_script(&init_script)
-        .devtools(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-    // Очистка реестра при закрытии окна
-    let label_for_close = label.clone();
-    let app_for_close = app.clone();
-    win.on_window_event(move |event| {
-        if let tauri::WindowEvent::Destroyed = event {
-            app_for_close.state::<AppState>().popout_registry.lock().unwrap().remove(&label_for_close);
-        }
-    });
-    Ok(())
-}
 
 /// Обновляет иконку трея + тултип с числом непрочитанных
 fn update_tray_badge(app: &AppHandle, unread: u32) {

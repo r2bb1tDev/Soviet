@@ -553,23 +553,30 @@ async fn on_relay_msg(
 
         // ── Soviet DM (Kind 4444) — E2E зашифрованное личное сообщение ──────
         4444 => {
-            // Проверяем, что сообщение адресовано нам
-            let recipient_hex = ev.tags.iter()
-                .find(|t| t.len() >= 2 && t[0] == "p")
-                .map(|t| t[1].clone())
-                .unwrap_or_default();
-            if recipient_hex != my_soviet_pk_hex || my_soviet_pk_hex.is_empty() {
-                return;
-            }
-
             // Получаем AppState для доступа к keypair
             let state: tauri::State<crate::AppState> = app.state();
 
-            // Игнорируем свои же сообщения
+            // ВСЕГДА читаем актуальный pubkey из identity (а не захваченную при старте
+            // пустую строку — иначе после первого онбординга все DM молча отбрасываются).
             let my_soviet_pk = state.identity.lock().unwrap()
                 .as_ref()
                 .map(|i| i.public_key.clone())
                 .unwrap_or_default();
+            if my_soviet_pk.is_empty() {
+                return; // identity ещё не загружена — игнорируем
+            }
+            let current_my_hex = soviet_pk_to_hex(&my_soviet_pk);
+
+            // Проверяем, что сообщение адресовано нам (используем АКТУАЛЬНЫЙ hex,
+            // не закэшированный — иначе после регистрации reader-task ловит пустоту).
+            let recipient_hex = ev.tags.iter()
+                .find(|t| t.len() >= 2 && t[0] == "p")
+                .map(|t| t[1].clone())
+                .unwrap_or_default();
+            if recipient_hex != current_my_hex {
+                let _ = my_soviet_pk_hex; // запасной аргумент для совместимости сигнатуры
+                return;
+            }
 
             // Парсим Soviet EncryptedMessage из content
             let Ok(encrypted): Result<crate::crypto::EncryptedMessage, _> =

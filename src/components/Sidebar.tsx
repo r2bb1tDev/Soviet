@@ -496,15 +496,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           <button style={s.ctxItem} onClick={() => { setActiveChannel(channelCtxMenu.ch); setChannelCtxMenu(null) }}>
             💬 Открыть
           </button>
-          <button style={s.ctxItem} onClick={() => {
-            invoke('open_channel_window', {
-              channelId: channelCtxMenu.ch.channel_id,
-              channelName: channelCtxMenu.ch.name,
-            })
-            setChannelCtxMenu(null)
-          }}>
-            🪟 Открыть в новом окне
-          </button>
           <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
           <button style={{ ...s.ctxItem, color: 'var(--busy)' }} onClick={async () => {
             if (!confirm(`Покинуть «${channelCtxMenu.ch.name}»?`)) return
@@ -524,16 +515,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           <button style={s.ctxItem} onClick={() => { openGroupChat(groupCtxMenu.chat); setGroupCtxMenu(null) }}>
             💬 Открыть
           </button>
-          <button style={s.ctxItem} onClick={() => {
-            invoke('open_chat_window', {
-              chatId: groupCtxMenu.chat.id,
-              peerKey: '',
-              peerName: groupCtxMenu.chat.group_name ?? 'Группа',
-            })
-            setGroupCtxMenu(null)
-          }}>
-            🪟 Открыть в новом окне
-          </button>
         </div>
       )}
 
@@ -544,16 +525,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onOpenChat={() => openChat(contextMenu.contact)}
-          onOpenInWindow={() => {
-            const c = contextMenu.contact
-            const chat = chatForContact(c.public_key)
-            invoke('open_chat_window', {
-              chatId: chat?.id ?? -1,
-              peerKey: c.public_key,
-              peerName: c.local_alias ?? c.nickname,
-            })
-            setContextMenu(null)
-          }}
           onViewProfile={() => { setProfileContact(contextMenu.contact); setContextMenu(null) }}
           onToggleFavorite={() => handleToggleFavorite(contextMenu.contact)}
           onDelete={() => handleDelete(contextMenu.contact)}

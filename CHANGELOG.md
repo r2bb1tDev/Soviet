@@ -5,6 +5,18 @@
 
 ---
 
+## [2.5.22] — 2026-04-18
+
+**Popout удалён полностью + критический фикс Nostr DM (друг за границей теперь добавляется)**
+
+### Удалено
+- **Popout-окна для чатов и каналов** — функция «Открыть в новом окне» убрана целиком. На Windows WebView2 secondary-окна Tauri v2 показывали чёрный пустой экран независимо от подхода (popout.html, index.html+init_script, hash fragment) — корень проблемы в самом WebView2/Tauri и обходных путей не нашлось. Файлы `popout.html`, `PopoutRoot.tsx`, `popout.tsx`, `pages/ChatPopout.tsx` удалены. Rust-команды `open_chat_window`, `open_channel_window`, `get_popout_data` и `popout_registry` вычищены из `lib.rs` (~205 строк). Кнопки 🪟 убраны из `Sidebar`, `ChatWindow`, `ChannelWindow`, `ContactContextMenu`. **Будет заменено вкладками** в следующем релизе — табы открытых чатов в одном окне, надёжно работают на любой платформе.
+
+### Исправлено критически
+- **Контакт-запросы через Nostr DM не доходили до получателя** — корень: при первом запуске приложения identity ещё не создана, и Nostr-стартер захватывал пустую строку `my_soviet_pk_hex` в `move`-замыкания reader-task'ов каждого WebSocket'а. После онбординга `SubscribeDms` обновлял relay-side фильтр, но локальный обработчик `on_relay_msg` продолжал использовать **закэшированную пустую строку** и молча отбрасывал ВСЕ входящие Kind 4444 события через проверку `recipient_hex != my_soviet_pk_hex || my_soviet_pk_hex.is_empty()`. Теперь `on_relay_msg` читает актуальный `identity` из `AppState` на каждое событие — DM, contact requests, групповые приглашения через интернет наконец доходят. **Это блокировало возможность общаться с другом за границей через damus.io / nos.lol relays — теперь работает.**
+
+---
+
 ## [2.5.21] — 2026-04-18
 
 **Popout теперь через URL hash fragment — НЕ зависит от Tauri initialization_script**

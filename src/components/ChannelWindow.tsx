@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useStore, NostrMessage, ChannelReaction, ChannelMedia, PollData, parseChannelContent, buildChannelContent, buildPollContent } from '../store'
 import { playClickSound, isSoundEnabled } from '../utils/sounds'
 
@@ -864,16 +862,6 @@ export default function ChannelWindow() {
           </div>
         </div>
         <div style={s.nostrBadge}>⚡ Nostr</div>
-        {getCurrentWindow().label === 'main' && (
-          <button className="btn-icon" title="Открыть в новом окне"
-            style={{ fontSize: 16, flexShrink: 0 }}
-            onClick={() => {
-              invoke('open_channel_window', {
-                channelId: activeChannel.channel_id,
-                channelName: activeChannel.name,
-              }).catch(e => console.error('open_channel_window failed:', e))
-            }}>🪟</button>
-        )}
         <button className="btn-icon" title="Настройки канала" style={{ fontSize: 16, flexShrink: 0 }}
           onClick={() => setShowSettings(true)}>⚙️</button>
         <button className="btn-icon" title="Покинуть канал"

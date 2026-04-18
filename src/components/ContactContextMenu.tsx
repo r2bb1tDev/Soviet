@@ -14,7 +14,6 @@ interface Props {
   y: number
   onClose: () => void
   onOpenChat: () => void
-  onOpenInWindow: () => void
   onViewProfile: () => void
   onToggleFavorite: () => void
   onDelete: () => void
@@ -22,7 +21,7 @@ interface Props {
 
 export default function ContactContextMenu({
   contact, x, y, onClose,
-  onOpenChat, onOpenInWindow, onViewProfile, onToggleFavorite, onDelete,
+  onOpenChat, onViewProfile, onToggleFavorite, onDelete,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -42,7 +41,6 @@ export default function ContactContextMenu({
 
   const items: MenuItem[] = [
     { label: 'Написать', icon: '💬', onClick: onOpenChat },
-    { label: 'Открыть в новом окне', icon: '🪟', onClick: onOpenInWindow },
     { label: 'Профиль', icon: '👤', onClick: onViewProfile },
     { label: contact.is_favorite ? 'Убрать из избранного' : 'В избранное', icon: '★', onClick: onToggleFavorite },
     { label: 'Удалить контакт', icon: '🗑️', danger: true, onClick: onDelete },
