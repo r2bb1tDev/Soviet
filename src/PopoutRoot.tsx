@@ -1,41 +1,23 @@
-import React, { useEffect, useState } from 'react'
-import ReactDOM from 'react-dom/client'
+import { useEffect, useState } from 'react'
 import ChatPopout, { PopoutData } from './pages/ChatPopout'
-import './styles/global.css'
 import { useStore } from './store'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
-// Глобальный обработчик необработанных ошибок — без него окно тихо становится пустым.
-// Рисуем сообщение прямо в body через hard-coded цвета (не завися от CSS-переменных,
-// которые могут не подгрузиться если global.css упал).
-function renderFatalError(msg: string) {
-  const bg = document.documentElement.getAttribute('data-theme') === 'light' ? '#F4FFF7' : '#0A0A0A'
-  const fg = document.documentElement.getAttribute('data-theme') === 'light' ? '#0A0A0A' : '#F4FFF7'
-  document.body.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:20px;box-sizing:border-box;background:${bg};color:${fg};font-family:system-ui,sans-serif;gap:12px;text-align:center;">
-      <div style="font-size:48px;">⚠️</div>
-      <div style="font-size:16px;font-weight:600;">Ошибка загрузки окна</div>
-      <div style="font-size:12px;opacity:0.75;max-width:420px;word-break:break-word;">${msg}</div>
-      <button onclick="window.close()" style="margin-top:8px;padding:8px 20px;font-size:13px;background:transparent;color:${fg};border:1px solid ${fg};border-radius:6px;cursor:pointer;">Закрыть</button>
-    </div>`
-}
-
-window.addEventListener('error', (e) => {
-  renderFatalError(`${e.message || 'unknown error'}\n${e.filename || ''}:${e.lineno || '?'}`)
-})
-window.addEventListener('unhandledrejection', (e) => {
-  renderFatalError(`Unhandled: ${String(e.reason)}`)
-})
-
-function PopoutApp() {
+/**
+ * Popout-окно: та же сборка что и главное (index.html + main.tsx), но
+ * вместо <App/> рендерим этот компонент когда выставлен window.__sovietPopoutLabel.
+ * Это надёжнее отдельного popout.html (который по неизвестным причинам
+ * давал чёрное пустое окно в Tauri WebView).
+ */
+export default function PopoutRoot() {
   const [popout, setPopout] = useState<PopoutData | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
     let label: string
     try {
-      label = getCurrentWindow().label
+      label = (window as any).__sovietPopoutLabel || getCurrentWindow().label
     } catch (e: any) {
       setErrorMsg(`getCurrentWindow failed: ${e?.message || e}`)
       return
@@ -54,7 +36,6 @@ function PopoutApp() {
         }
 
         if (data.type === 'chat') {
-          // Если peerKey пустой — это group chat; активный чат подгрузится ниже через loadChats()
           const isGroup = !data.peerKey
           useStore.setState({
             activeChat: {
@@ -98,7 +79,6 @@ function PopoutApp() {
       })
   }, [])
 
-  // Inline-цвета на случай если global.css не загрузился
   const theme = document.documentElement.getAttribute('data-theme')
   const bg = theme === 'light' ? '#F4FFF7' : '#0A0A0A'
   const fg = theme === 'light' ? '#0A0A0A' : '#F4FFF7'
@@ -127,16 +107,4 @@ function PopoutApp() {
     </div>
   )
   return <ChatPopout data={popout} />
-}
-
-try {
-  const root = document.getElementById('root')
-  if (!root) throw new Error('#root element not found in popout.html')
-  ReactDOM.createRoot(root).render(
-    <React.StrictMode>
-      <PopoutApp />
-    </React.StrictMode>
-  )
-} catch (e: any) {
-  renderFatalError(`React mount failed: ${e?.message || e}`)
 }

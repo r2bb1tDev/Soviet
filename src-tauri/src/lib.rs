@@ -362,44 +362,80 @@ fn send_contact_request(
         storage::save_contact_request(&db, &recipient_pk, "", "outgoing").ok();
     }
 
-    // 1. Try LAN
-    let sent = {
+    // Шлём по ВСЕМ доступным каналам параллельно — избыточность критична, т.к.
+    // «sent=true» у LAN/P2P означает лишь «положили в очередь», а не «дошло до адресата».
+    // Nostr DM сохраняется на relay и подхватится когда получатель будет онлайн.
+    let mut any_attempted = false;
+    let mut delivery_log = Vec::new();
+
+    // 1. LAN broadcast — даже если peer не в is_peer_online, broadcast-TCP попытка
+    {
         let lan_guard = state.lan.lock().unwrap();
         if let Some(lan) = lan_guard.as_ref() {
             if lan.is_peer_online(&recipient_pk) {
-                lan.send_to_peer(&recipient_pk, &packet).is_ok()
-            } else { false }
-        } else { false }
-    };
+                match lan.send_to_peer(&recipient_pk, &packet) {
+                    Ok(_) => { any_attempted = true; delivery_log.push("LAN ok"); }
+                    Err(e) => { delivery_log.push("LAN fail"); log::warn!("LAN send_contact_request: {e}"); }
+                }
+            } else {
+                delivery_log.push("LAN peer offline");
+            }
+        } else {
+            delivery_log.push("LAN unavailable");
+        }
+    }
 
-    // 2. Try P2P mesh
-    let sent = if !sent {
+    // 2. P2P mesh
+    {
         let p2p_guard = state.p2p.lock().unwrap();
         if let Some(p2p) = p2p_guard.as_ref() {
             if let Some(peer_id) = p2p.is_peer_online(&recipient_pk) {
                 let data = serde_json::to_vec(&packet).unwrap_or_default();
-                p2p.cmd_tx.try_send(p2p::P2pCmd::SendMessage { peer_id, data }).is_ok()
-            } else { false }
-        } else { false }
-    } else { true };
+                match p2p.cmd_tx.try_send(p2p::P2pCmd::SendMessage { peer_id, data }) {
+                    Ok(_) => { any_attempted = true; delivery_log.push("P2P ok"); }
+                    Err(_) => { delivery_log.push("P2P channel full"); }
+                }
+            } else {
+                delivery_log.push("P2P peer not found");
+            }
+        } else {
+            delivery_log.push("P2P unavailable");
+        }
+    }
 
-    // 3. Fallback: send contact request payload via Nostr DM
-    if !sent {
+    // 3. Nostr DM — самый надёжный путь через интернет (relay хранит событие),
+    // шлём ВСЕГДА, даже если LAN/P2P отработали — редундантность не повредит,
+    // а получатель потом просто проигнорирует дубликат (save_contact_request
+    // проверяет существующую "pending" запись и не создаёт вторую).
+    {
         let kp_guard = state.keypair.lock().unwrap();
-        let kp = kp_guard.as_ref().ok_or("No keypair")?;
-        // Encrypt the contact_request packet payload as a Soviet DM
+        let kp = kp_guard.as_ref().ok_or("No keypair — identity not loaded")?;
         let payload_bytes = serde_json::to_vec(&packet).map_err(|e| e.to_string())?;
         let encrypted = crypto::encrypt_message(kp, &recipient_pk, &payload_bytes)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("encrypt failed: {e}"))?;
         drop(kp_guard);
         let enc_json = serde_json::to_string(&encrypted).map_err(|e| e.to_string())?;
         let nostr_guard = state.nostr.lock().unwrap();
         if let Some(n) = nostr_guard.as_ref() {
-            n.cmd_tx.try_send(nostr::NostrCmd::SendDm {
-                recipient_soviet_pk: recipient_pk,
+            match n.cmd_tx.try_send(nostr::NostrCmd::SendDm {
+                recipient_soviet_pk: recipient_pk.clone(),
                 encrypted_json: enc_json,
-            }).map_err(|e| e.to_string())?;
+            }) {
+                Ok(_) => { any_attempted = true; delivery_log.push("Nostr ok"); }
+                Err(e) => { delivery_log.push("Nostr channel full"); log::warn!("Nostr send: {e}"); }
+            }
+        } else {
+            delivery_log.push("Nostr unavailable");
         }
+    }
+
+    log::info!("send_contact_request to {:.16}…: [{}]", recipient_pk, delivery_log.join(", "));
+
+    if !any_attempted {
+        return Err(format!(
+            "Не удалось отправить запрос ни по одному каналу: {}. Проверьте подключение к интернету.",
+            delivery_log.join(", ")
+        ));
     }
     Ok(())
 }
@@ -2266,7 +2302,21 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
     // background_color задаёт фон окна на уровне ОС ДО загрузки WebView — защита
     // от белого мигания даже если popout.html не успел отдать inline <style>.
     let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
-    let win = tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("popout.html".into()))
+    // Popout использует тот же index.html что и главное окно — работающий на 100%.
+    // Через initialization_script выставляем window.__sovietPopoutLabel; main.tsx
+    // видит флаг и рендерит <PopoutRoot/> вместо <App/>.
+    let init_script = format!(
+        r#"
+        (function(){{
+          try {{
+            window.__sovietPopoutLabel = {label_json};
+            console.log('[SOVIET popout] label =', window.__sovietPopoutLabel);
+          }} catch(e) {{ console.error('popout init failed:', e); }}
+        }})();
+    "#,
+        label_json = serde_json::to_string(&safe_label).unwrap_or_else(|_| "\"\"".into())
+    );
+    let win = tauri::WebviewWindowBuilder::new(&app, &safe_label, tauri::WebviewUrl::App("index.html".into()))
         .title(&peer_name)
         .inner_size(480.0, 620.0)
         .min_inner_size(360.0, 400.0)
@@ -2277,6 +2327,8 @@ fn open_chat_window(app: AppHandle, state: tauri::State<'_, AppState>, chat_id: 
         .maximizable(true)
         .focused(true)
         .background_color(tauri::webview::Color(bg.0, bg.1, bg.2, bg.3))
+        .initialization_script(&init_script)
+        .devtools(true)
         .build()
         .map_err(|e| e.to_string())?;
     // Очистка реестра при закрытии окна
@@ -2314,7 +2366,18 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
     // без этого кнопки закрытия нет, пользователь «застревает» в окне.
     // background_color задаёт фон окна на уровне ОС ДО загрузки WebView.
     let bg = if theme == "light" { (244, 255, 247, 255) } else { (10, 10, 10, 255) };
-    let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("popout.html".into()))
+    let init_script = format!(
+        r#"
+        (function(){{
+          try {{
+            window.__sovietPopoutLabel = {label_json};
+            console.log('[SOVIET popout] label =', window.__sovietPopoutLabel);
+          }} catch(e) {{ console.error('popout init failed:', e); }}
+        }})();
+    "#,
+        label_json = serde_json::to_string(&label).unwrap_or_else(|_| "\"\"".into())
+    );
+    let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
         .title(&channel_name)
         .inner_size(560.0, 650.0)
         .min_inner_size(400.0, 400.0)
@@ -2325,6 +2388,8 @@ fn open_channel_window(app: AppHandle, state: tauri::State<'_, AppState>, channe
         .maximizable(true)
         .focused(true)
         .background_color(tauri::webview::Color(bg.0, bg.1, bg.2, bg.3))
+        .initialization_script(&init_script)
+        .devtools(true)
         .build()
         .map_err(|e| e.to_string())?;
     // Очистка реестра при закрытии окна

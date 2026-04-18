@@ -37,3 +37,6 @@ desktop.ini
 # Nested repos / mobile
 mobile/
 soviet/
+
+# Standalone relay server (self-hosted, not shipped with client)
+relay-server/

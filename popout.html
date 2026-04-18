@@ -6,21 +6,117 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Soviet</title>
     <style>
-      /* Fallback: фон до загрузки JS/CSS — нет белого мигания */
-      html, body { margin: 0; padding: 0; background: #0A0A0A; }
+      /* Fallback: фон + явный color до загрузки JS/CSS — чтобы emergency button был виден */
+      html, body { margin: 0; padding: 0; background: #0A0A0A; color: #F4FFF7; height: 100%; overflow: hidden; }
+      body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      html[data-theme='light'], html[data-theme='light'] body { background: #F4FFF7; color: #0A0A0A; }
+      /* Emergency close — ЯРКАЯ КРАСНАЯ кнопка, видна на любом фоне даже если CSS не подгрузился */
+      #emergency-close {
+        position: fixed; top: 6px; right: 6px; z-index: 2147483647;
+        width: 32px; height: 32px; padding: 0; line-height: 28px;
+        font-size: 22px; font-weight: bold; text-align: center;
+        background: #e53e3e; color: #ffffff;
+        border: 2px solid #ffffff; border-radius: 6px;
+        cursor: pointer; user-select: none;
+        box-shadow: 0 0 8px rgba(0,0,0,0.5);
+        transition: transform 0.1s;
+      }
+      #emergency-close:hover { transform: scale(1.1); }
+      #watchdog-msg {
+        position: fixed; inset: 0; display: none;
+        flex-direction: column; align-items: center; justify-content: center;
+        padding: 20px; text-align: center; gap: 12px;
+        background: var(--bg, #0A0A0A); color: var(--fg, #F4FFF7);
+      }
+      #watchdog-msg .ic { font-size: 42px; }
+      #watchdog-msg .t  { font-size: 15px; font-weight: 600; }
+      #watchdog-msg .d  { font-size: 12px; opacity: 0.7; max-width: 380px; }
+      #watchdog-msg button {
+        margin-top: 6px; padding: 8px 20px; font-size: 13px;
+        background: transparent; color: inherit;
+        border: 1px solid currentColor; border-radius: 6px; cursor: pointer;
+      }
     </style>
     <script>
       ;(function(){
         var s = localStorage.getItem('soviet_theme');
         var dark = s === 'dark' || (!s && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-        /* Обновляем фон сразу под тему, не ждём загрузки CSS */
-        document.documentElement.style.background = dark ? '#0A0A0A' : '#F4FFF7';
+        var bg = dark ? '#0A0A0A' : '#F4FFF7';
+        var fg = dark ? '#F4FFF7' : '#0A0A0A';
+        document.documentElement.style.background = bg;
+        document.documentElement.style.color = fg;
+        document.documentElement.style.setProperty('--bg', bg);
+        document.documentElement.style.setProperty('--fg', fg);
       })();
+
+      // Эмерджентная кнопка закрытия — гарантирует возможность закрыть окно
+      // ДАЖЕ если JS-бандл упал, или React не смонтировался, или Tauri повис.
+      // На Windows окно при .decorations(true) уже имеет X в титульнике,
+      // но на случай если декорации не сработали — вот запасной вариант.
+      function emergencyClose() {
+        try {
+          // Tauri API через глобал
+          if (window.__TAURI__ && window.__TAURI__.window) {
+            window.__TAURI__.window.getCurrentWindow().close();
+            return;
+          }
+          if (window.__TAURI_INTERNALS__) {
+            window.__TAURI_INTERNALS__.invoke('tauri', { __tauriModule: 'Window', message: { cmd: 'close' } });
+            return;
+          }
+        } catch(e) { console.error('tauri close failed:', e); }
+        // Последний fallback — стандартный browser API (работает в Tauri WebView)
+        window.close();
+      }
+      window.emergencyClose = emergencyClose;
+
+      // Watchdog: если через 6 сек в #root ничего не появилось — показываем диагностику
+      window.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+          var root = document.getElementById('root');
+          if (root && root.children.length === 0) {
+            var wd = document.getElementById('watchdog-msg');
+            if (wd) wd.style.display = 'flex';
+          }
+        }, 6000);
+      });
+
+      // Inline глобальные обработчики — ловят даже ошибки загрузки модулей
+      // (до того как popout.tsx сможет зарегистрировать свои). Рисуем поверх всего.
+      window.__sovietShowError = function(msg){
+        try {
+          var existing = document.getElementById('__soviet_err');
+          if (existing) existing.remove();
+          var d = document.createElement('div');
+          d.id = '__soviet_err';
+          d.style.cssText = 'position:fixed;inset:0;z-index:2147483646;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:12px;text-align:center;background:#0A0A0A;color:#F4FFF7;font-family:system-ui,sans-serif;overflow:auto;';
+          d.innerHTML = '<div style="font-size:42px">⚠️</div>' +
+            '<div style="font-size:15px;font-weight:600">Popout-окно: ошибка</div>' +
+            '<div style="font-size:11px;opacity:0.75;max-width:420px;white-space:pre-wrap;word-break:break-word;font-family:monospace">' +
+              String(msg).replace(/</g,'&lt;').replace(/>/g,'&gt;') +
+            '</div>' +
+            '<button onclick="window.emergencyClose()" style="padding:8px 18px;font-size:13px;background:transparent;color:#F4FFF7;border:1px solid #F4FFF7;border-radius:6px;cursor:pointer;">Закрыть</button>';
+          (document.body || document.documentElement).appendChild(d);
+        } catch(e) {}
+      };
+      window.addEventListener('error', function(ev){
+        window.__sovietShowError((ev.message||'error') + '\n' + (ev.filename||'') + ':' + (ev.lineno||'?') + ':' + (ev.colno||'?'));
+      });
+      window.addEventListener('unhandledrejection', function(ev){
+        window.__sovietShowError('Unhandled: ' + (ev.reason && ev.reason.stack ? ev.reason.stack : String(ev.reason)));
+      });
     </script>
   </head>
   <body>
+    <button id="emergency-close" title="Закрыть окно" onclick="emergencyClose()">×</button>
     <div id="root"></div>
+    <div id="watchdog-msg">
+      <div class="ic">⚠️</div>
+      <div class="t">Окно не загрузилось</div>
+      <div class="d">JS-бандл не смонтировал React за 6 секунд. Возможно повреждение установки. Откройте DevTools (Ctrl+Shift+I) и посмотрите консоль.</div>
+      <button onclick="emergencyClose()">Закрыть</button>
+    </div>
     <script type="module" src="/src/popout.tsx"></script>
   </body>
 </html>
