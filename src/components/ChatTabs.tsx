@@ -189,6 +189,28 @@ export default function ChatTabs() {
             </div>
           )
         })}
+        {openTabs.filter(t => !pinnedTabIds.has(t.id)).length >= 2 && (
+          <button
+            title="Закрыть все незакреплённые вкладки"
+            onClick={() => {
+              openTabs.forEach(t => { if (!pinnedTabIds.has(t.id)) closeTab(t.id) })
+            }}
+            style={{
+              marginLeft: 'auto',
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              padding: '4px 10px',
+              fontSize: 12,
+              borderRadius: 4,
+              alignSelf: 'center',
+              marginRight: 6,
+            }}
+          >
+            ✕ Закрыть все
+          </button>
+        )}
       </div>
 
       {hoverTooltip && (() => {

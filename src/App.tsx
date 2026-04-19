@@ -9,6 +9,7 @@ import Main from './pages/Main'
 import Settings from './pages/Settings'
 import ToastContainer from './components/Toast'
 import KeyboardShortcuts from './components/KeyboardShortcuts'
+import GlobalSearch from './components/GlobalSearch'
 import { isSoundEnabled, playNotificationBeep, playOnlineSound, playOfflineSound, playBuzzSound } from './utils/sounds'
 import './styles/global.css'
 
@@ -37,6 +38,7 @@ export default function App() {
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [updateInfo, setUpdateInfo] = useState<any>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false)
 
   const checkForUpdates = async () => {
     try {
@@ -111,6 +113,11 @@ export default function App() {
     const handler = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey || e.metaKey
 
+      if (ctrl && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault()
+        setShowGlobalSearch(true)
+        return
+      }
       if (ctrl && e.key === 'f') {
         e.preventDefault()
         window.dispatchEvent(new CustomEvent('soviet:focus-search'))
@@ -508,6 +515,7 @@ export default function App() {
 
       <ToastContainer />
       {showShortcuts && <KeyboardShortcuts onClose={() => setShowShortcuts(false)} />}
+      {showGlobalSearch && <GlobalSearch onClose={() => setShowGlobalSearch(false)} />}
     </>
   )
 }
