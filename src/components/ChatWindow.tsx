@@ -49,6 +49,8 @@ export default function ChatWindow() {
 
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [missedCount, setMissedCount] = useState(0)
+  const [jumpedMsgId, setJumpedMsgId] = useState<number | null>(null)
+  const jumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const dragCounterRef = useRef(0)
   const [hasMore, setHasMore] = useState(false)
@@ -247,6 +249,15 @@ export default function ChatWindow() {
     setIsAtBottom(true)
     isAtBottomRef.current = true
     setMissedCount(0)
+  }
+
+  const jumpToMessage = (msgId: number) => {
+    const el = messageRefs.current.get(msgId)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (jumpTimerRef.current) clearTimeout(jumpTimerRef.current)
+    setJumpedMsgId(msgId)
+    jumpTimerRef.current = setTimeout(() => setJumpedMsgId(null), 1500)
   }
 
   const handleLoadMore = async () => {
@@ -777,11 +788,22 @@ export default function ChatWindow() {
               const replyQuote = msg.reply_to
                 ? (decryptedMessages[msg.reply_to] ?? messages.find(m => m.id === msg.reply_to)?.plaintext ?? null)
                 : null
+              const replySender = msg.reply_to
+                ? messages.find(m => m.id === msg.reply_to)
+                : null
+              const replySenderName = replySender
+                ? (replySender.sender_key === identity?.public_key
+                    ? 'Вы'
+                    : contacts.find(c => c.public_key === replySender.sender_key)
+                        ?.local_alias ?? contacts.find(c => c.public_key === replySender.sender_key)?.nickname ?? null)
+                : null
               const msgGlobalIdx = messages.indexOf(msg)
               const isSearchMatch = searchResults.includes(msgGlobalIdx)
               const isCurrentSearchMatch = searchResults[searchIdx] === msgGlobalIdx
+              const isJumped = jumpedMsgId === msg.id
               return (
                 <div key={msg.id} ref={el => { if (el) messageRefs.current.set(msg.id, el); else messageRefs.current.delete(msg.id) }}
+                  className={isJumped ? 'message-jumped' : undefined}
                   style={isCurrentSearchMatch ? { outline: '2px solid var(--accent)', borderRadius: 8 } : undefined}>
                   <MessageBubble
                     msg={msg}
@@ -802,7 +824,9 @@ export default function ChatWindow() {
                       setReactionPickerMsgId(v => v === msg.id ? null : msg.id)
                     }}
                     replyQuote={replyQuote}
+                    replySenderName={replySenderName}
                     searchQuery={isSearchMatch ? searchQuery : undefined}
+                    onJumpToReply={msg.reply_to != null ? () => jumpToMessage(msg.reply_to!) : undefined}
                   />
                 </div>
               )
@@ -1152,7 +1176,9 @@ interface BubbleProps {
   showReactionPicker: boolean
   onToggleReactionPicker: (e: React.MouseEvent) => void
   replyQuote?: string | null
+  replySenderName?: string | null
   searchQuery?: string
+  onJumpToReply?: () => void
 }
 
 function highlightText(text: string, query: string): React.ReactNode {
@@ -1169,7 +1195,7 @@ function MessageBubble({
   msg, isMine, text, msgReactions, myPk, isEditing, editText,
   onEditChange, onEditSubmit, onEditCancel,
   onContextMenu, onReact, showReactionPicker, onToggleReactionPicker,
-  replyQuote, searchQuery,
+  replyQuote, replySenderName, searchQuery, onJumpToReply,
 }: BubbleProps) {
   const time = new Date(msg.timestamp * 1000).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
   const reactionGroups = groupReactions(msgReactions, myPk)
@@ -1251,15 +1277,27 @@ function MessageBubble({
           onContextMenu={onContextMenu}
         >
           {replyQuote && !msg.is_deleted && (
-            <div style={{
-              borderLeft: '2px solid var(--accent)',
-              paddingLeft: 8, marginBottom: 6,
-              opacity: 0.7, fontSize: 11,
-              overflow: 'hidden', maxHeight: 40,
-              display: '-webkit-box', WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-            }}>
-              {replyQuote.slice(0, 100)}
+            <div
+              style={{
+                borderLeft: '2px solid var(--accent)',
+                paddingLeft: 8, marginBottom: 6,
+                opacity: 0.7, fontSize: 11,
+                overflow: 'hidden', maxHeight: 44,
+                cursor: onJumpToReply ? 'pointer' : 'default',
+              }}
+              onClick={e => { e.stopPropagation(); onJumpToReply?.() }}
+            >
+              {replySenderName && (
+                <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 1, fontSize: 10 }}>
+                  {replySenderName}
+                </div>
+              )}
+              <div style={{
+                display: '-webkit-box', WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>
+                {replyQuote.slice(0, 80)}
+              </div>
             </div>
           )}
           {isEditing ? (

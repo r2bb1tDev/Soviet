@@ -567,3 +567,15 @@ hr.terminal-divider {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Feature 4: jump-to-message highlight pulse ── */
+@keyframes message-jump-pulse {
+  0%   { background: rgba(208, 176, 64, 0.45); }
+  60%  { background: rgba(208, 176, 64, 0.25); }
+  100% { background: transparent; }
+}
+
+.message-jumped {
+  animation: message-jump-pulse 1.5s ease-out forwards;
+  border-radius: 8px;
+}

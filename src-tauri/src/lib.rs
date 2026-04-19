@@ -59,6 +59,19 @@ pub struct AppState {
     pub lan_tx: mpsc::UnboundedSender<(String, LanPacket)>,
     pub nostr: Mutex<Option<nostr::NostrHandle>>,
     pub p2p: Mutex<Option<p2p::P2pHandle>>,
+    /// Feature 2: last auto-reply timestamp per sender pubkey (session-only)
+    pub auto_reply_cache: Mutex<std::collections::HashMap<String, i64>>,
+}
+
+/// Load stealth list from DB and return as HashSet.
+fn load_stealth_list(conn: &rusqlite::Connection) -> std::collections::HashSet<String> {
+    storage::get_setting(conn, "stealth_list")
+        .ok().flatten()
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
 }
 
 // ─── Commands — Identity / Onboarding ────────────────────────────────────────
@@ -743,6 +756,9 @@ pub struct Settings {
     pub deny_list: String,
     pub invisible_list: String,
     pub ignore_list: String,
+    // Feature 2: away/dnd auto-reply messages
+    pub away_message: String,
+    pub dnd_message: String,
 }
 
 #[tauri::command]
@@ -765,6 +781,8 @@ fn get_settings(state: State<AppState>) -> Result<Settings, String> {
         deny_list: get("deny_list"),
         invisible_list: get("invisible_list"),
         ignore_list: get("ignore_list"),
+        away_message: if get("away_message").is_empty() { "Я отошёл — отвечу позже.".to_string() } else { get("away_message") },
+        dnd_message: if get("dnd_message").is_empty() { "Не беспокоить — отвечу позже.".to_string() } else { get("dnd_message") },
     })
 }
 
@@ -787,6 +805,8 @@ fn save_settings(settings: Settings, state: State<AppState>) -> Result<(), Strin
     storage::set_setting(&db, "deny_list", &settings.deny_list).ok();
     storage::set_setting(&db, "invisible_list", &settings.invisible_list).ok();
     storage::set_setting(&db, "ignore_list", &settings.ignore_list).ok();
+    storage::set_setting(&db, "away_message", &settings.away_message).ok();
+    storage::set_setting(&db, "dnd_message", &settings.dnd_message).ok();
     Ok(())
 }
 
@@ -933,6 +953,75 @@ pub fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                             "preview": preview_short,
                         })).ok();
 
+                        // Feature 2: away/dnd auto-reply
+                        {
+                            let db_ar = state.db.0.lock().unwrap();
+                            let current_status = storage::get_setting(&db_ar, "status")
+                                .ok().flatten().unwrap_or_default();
+                            let stealth = load_stealth_list(&db_ar);
+                            let away_msg = storage::get_setting(&db_ar, "away_message")
+                                .ok().flatten()
+                                .unwrap_or_else(|| "Я отошёл — отвечу позже.".to_string());
+                            let dnd_msg = storage::get_setting(&db_ar, "dnd_message")
+                                .ok().flatten()
+                                .unwrap_or_else(|| "Не беспокоить — отвечу позже.".to_string());
+                            let auto_reply_text = match current_status.as_str() {
+                                "away" => Some(away_msg),
+                                "dnd"  => Some(dnd_msg),
+                                _ => None,
+                            };
+                            let sender_pk = encrypted.sender_pk.clone();
+                            drop(db_ar);
+                            if let Some(reply_text) = auto_reply_text {
+                                if !stealth.contains(&sender_pk) {
+                                    let now_ts = chrono::Utc::now().timestamp();
+                                    let should_send = {
+                                        let mut cache = state.auto_reply_cache.lock().unwrap();
+                                        let last = cache.get(&sender_pk).copied().unwrap_or(0);
+                                        if now_ts - last > 600 {
+                                            cache.insert(sender_pk.clone(), now_ts);
+                                            true
+                                        } else { false }
+                                    };
+                                    if should_send {
+                                        let app2 = app.clone();
+                                        let state2: tauri::State<AppState> = app2.state();
+                                        let kp_guard2 = state2.keypair.lock().unwrap();
+                                        if let Some(kp2) = kp_guard2.as_ref() {
+                                            let id_guard2 = state2.identity.lock().unwrap();
+                                            let my_pk2 = id_guard2.as_ref().map(|i| i.public_key.clone()).unwrap_or_default();
+                                            drop(id_guard2);
+                                            if let Ok(enc2) = crypto::encrypt_message(kp2, &sender_pk, reply_text.as_bytes()) {
+                                                drop(kp_guard2);
+                                                let ts2 = chrono::Utc::now().timestamp();
+                                                let db3 = state2.db.0.lock().unwrap();
+                                                if let Ok(cid2) = storage::get_or_create_direct_chat(&db3, &sender_pk) {
+                                                    let preview2 = format!("Вы: {}", &reply_text);
+                                                    let enc_json2 = serde_json::to_string(&enc2).unwrap_or_default();
+                                                    let ar_msg = storage::DbMessage {
+                                                        id: 0, chat_id: cid2,
+                                                        sender_key: my_pk2.clone(),
+                                                        content: enc_json2.clone(),
+                                                        content_type: "text".to_string(),
+                                                        timestamp: ts2,
+                                                        status: "sent".to_string(),
+                                                        reply_to: None, edited_at: None,
+                                                        is_deleted: false,
+                                                        plaintext: Some(reply_text.clone()),
+                                                    };
+                                                    if let Ok(_ar_id) = storage::save_message_with_preview(&db3, &ar_msg, &preview2, &reply_text) {
+                                                        drop(db3);
+                                                        let pkt = network::make_message_packet(&my_pk2, &enc2);
+                                                        send_packet_to_peer(&state2, &sender_pk, &pkt);
+                                                    } else { drop(db3); }
+                                                } else { drop(db3); }
+                                            } else { drop(kp_guard2); }
+                                        } else { drop(kp_guard2); }
+                                    }
+                                }
+                            }
+                        }
+
                         // OS уведомление
                         use tauri_plugin_notification::NotificationExt;
                         app.notification()
@@ -1029,10 +1118,17 @@ pub fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
                     )
                 };
                 if !my_pk.is_empty() {
-                    let hello = network::make_hello_packet(&my_pk, &my_nick, &my_avatar, &my_status, &my_status_text);
-                    let lan_guard = state.lan.lock().unwrap();
-                    if let Some(lan) = lan_guard.as_ref() {
-                        lan.send_to_peer(&peer_pk, &hello).ok();
+                    // Feature 1: skip hello to stealth-listed peers
+                    let is_stealth = {
+                        let db = state.db.0.lock().unwrap();
+                        load_stealth_list(&db).contains(&peer_pk)
+                    };
+                    if !is_stealth {
+                        let hello = network::make_hello_packet(&my_pk, &my_nick, &my_avatar, &my_status, &my_status_text);
+                        let lan_guard = state.lan.lock().unwrap();
+                        if let Some(lan) = lan_guard.as_ref() {
+                            lan.send_to_peer(&peer_pk, &hello).ok();
+                        }
                     }
                 }
             }
@@ -2229,6 +2325,7 @@ pub fn run() {
                 lan_tx: tx.clone(),
                 nostr: Mutex::new(Some(nostr_handle)),
                 p2p: Mutex::new(None),
+                auto_reply_cache: Mutex::new(std::collections::HashMap::new()),
             });
 
             // 5. Запускаем LAN если есть идентичность

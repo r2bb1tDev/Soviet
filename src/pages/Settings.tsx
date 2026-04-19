@@ -17,6 +17,8 @@ export default function Settings() {
   const [customIdError, setCustomIdError] = useState('')
   const [privKey, setPrivKey] = useState('')
   const [autoResponse, setAutoResponse] = useState('')
+  const [awayMessage, setAwayMessage] = useState('Я отошёл — отвечу позже.')
+  const [dndMessage, setDndMessage] = useState('Не беспокоить — отвечу позже.')
   const [historyEnabled, setHistoryEnabled] = useState(true)
   const [allowList, setAllowList] = useState('')
   const [denyList, setDenyList] = useState('')
@@ -68,6 +70,8 @@ export default function Settings() {
       if (s.avatar_data) setAvatarPreview(s.avatar_data)
       if (s.custom_id) setCustomId(s.custom_id)
       setAutoResponse(s.auto_response ?? '')
+      setAwayMessage(s.away_message ?? 'Я отошёл — отвечу позже.')
+      setDndMessage(s.dnd_message ?? 'Не беспокоить — отвечу позже.')
       setHistoryEnabled(s.history_enabled !== false)
       setAllowList(s.allow_list ?? '')
       setDenyList(s.deny_list ?? '')
@@ -137,6 +141,8 @@ export default function Settings() {
           deny_list: denyList,
           invisible_list: invisibleList,
           ignore_list: ignoreList,
+          away_message: awayMessage,
+          dnd_message: dndMessage,
         }
       })
       setMyAvatar(avatarPreview)
@@ -357,12 +363,26 @@ export default function Settings() {
               {/* Сообщения */}
               <Section title="Сообщения">
                 <Toggle label="История сообщений" value={historyEnabled} onChange={setHistoryEnabled} />
-                <Label style={{ marginTop: 10 }}>Автоответчик</Label>
+                <Label style={{ marginTop: 10 }}>Автоответчик (общий)</Label>
                 <textarea
                   style={{ ...s.input, height: 70, resize: 'none' }}
                   placeholder="Текст автоответа (если вы Away / DND)"
                   value={autoResponse}
                   onChange={e => setAutoResponse(e.target.value)}
+                />
+                <Label style={{ marginTop: 10 }}>Автоответ при статусе «Отошёл»</Label>
+                <textarea
+                  style={{ ...s.input, height: 54, resize: 'none' }}
+                  placeholder="Я отошёл — отвечу позже."
+                  value={awayMessage}
+                  onChange={e => setAwayMessage(e.target.value)}
+                />
+                <Label style={{ marginTop: 10 }}>Автоответ при статусе «Не беспокоить»</Label>
+                <textarea
+                  style={{ ...s.input, height: 54, resize: 'none' }}
+                  placeholder="Не беспокоить — отвечу позже."
+                  value={dndMessage}
+                  onChange={e => setDndMessage(e.target.value)}
                 />
               </Section>
 

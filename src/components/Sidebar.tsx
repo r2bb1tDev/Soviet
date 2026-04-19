@@ -105,12 +105,27 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const pendingRequest = contactRequests[0] ?? null
 
   const filtered = useMemo(() => {
-    const q = sidebarSearch.toLowerCase()
+    const q = sidebarSearch.trim()
     if (!q) return contacts
-    return contacts.filter(c =>
-      c.nickname.toLowerCase().includes(q) ||
-      c.public_key.toLowerCase().includes(q)
-    )
+    const isAtQuery = q.startsWith('@')
+    const isHexQuery = /^[0-9a-fA-F]{32,}$/.test(q)
+    const qLow = q.toLowerCase()
+    const qId = isAtQuery ? q.slice(1).toLowerCase() : ''
+    return contacts.filter(c => {
+      if (isAtQuery) {
+        const cid = (c as any).custom_id ?? ''
+        return cid.toLowerCase().includes(qId)
+      }
+      if (isHexQuery) {
+        return c.public_key.toLowerCase().startsWith(qLow)
+      }
+      return (
+        c.nickname.toLowerCase().includes(qLow) ||
+        c.public_key.toLowerCase().includes(qLow) ||
+        (c.local_alias ?? '').toLowerCase().includes(qLow) ||
+        ((c as any).custom_id ?? '').toLowerCase().includes(qLow)
+      )
+    })
   }, [contacts, sidebarSearch])
 
   const favorites = filtered.filter(c => c.is_favorite)
@@ -377,6 +392,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
                     lastTime={lastTimeFor(c.public_key)}
                     onClick={() => openChat(c)}
                     onContextMenu={e => handleContextMenu(e, c)}
+                    searchQuery={sidebarSearch}
                   />
                 ))}
               </>
@@ -396,6 +412,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
                     lastTime={lastTimeFor(c.public_key)}
                     onClick={() => openChat(c)}
                     onContextMenu={e => handleContextMenu(e, c)}
+                    searchQuery={sidebarSearch}
                   />
                 ))}
               </>
@@ -668,7 +685,16 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function ContactRow({ contact, active, unread, displayName, lastMsg, lastTime, onClick, onContextMenu }: {
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query) return text
+  const q = query.startsWith('@') ? query.slice(1) : query
+  if (!q) return text
+  const idx = text.toLowerCase().indexOf(q.toLowerCase())
+  if (idx === -1) return text
+  return <>{text.slice(0, idx)}<mark style={{ background: 'var(--accent)', color: 'var(--accent-text)', borderRadius: 2, padding: '0 1px' }}>{text.slice(idx, idx + q.length)}</mark>{text.slice(idx + q.length)}</>
+}
+
+function ContactRow({ contact, active, unread, displayName, lastMsg, lastTime, onClick, onContextMenu, searchQuery }: {
   contact: Contact
   active: boolean
   unread: number
@@ -677,6 +703,7 @@ function ContactRow({ contact, active, unread, displayName, lastMsg, lastTime, o
   lastTime: number | null
   onClick: () => void
   onContextMenu: (e: React.MouseEvent) => void
+  searchQuery?: string
 }) {
   const initials = displayName.charAt(0).toUpperCase()
   const avatarColor = stringToColor(contact.public_key)
@@ -702,7 +729,7 @@ function ContactRow({ contact, active, unread, displayName, lastMsg, lastTime, o
       <div style={row.info}>
         <div style={row.top}>
           <span style={row.name} className="truncate">
-            {displayName}
+            {highlightMatch(displayName, searchQuery ?? '')}
             {contact.verified && (
               <svg style={{ marginLeft: 3, color: 'var(--accent)', flexShrink: 0 }} width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
