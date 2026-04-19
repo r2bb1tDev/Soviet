@@ -560,6 +560,55 @@ export default function ChatWindow() {
               </svg>
             </button>
           )}
+          <button
+            className="btn-icon"
+            title="Экспорт в .txt"
+            onClick={() => {
+              const lines = messages.map(m => {
+                const ts = new Date(m.timestamp * 1000).toLocaleString('ru-RU')
+                const who = m.sender_key === identity?.public_key ? (identity?.nickname ?? 'Я') : displayName
+                return `[${ts}] ${who}: ${m.content}`
+              })
+              const header = `Soviet — история чата с ${displayName}\nЭкспортировано: ${new Date().toLocaleString('ru-RU')}\nСообщений: ${messages.length}\n${'='.repeat(60)}\n\n`
+              const blob = new Blob([header + lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `soviet-chat-${(displayName || 'chat').replace(/[^a-zA-Zа-яА-Я0-9_-]/g, '_')}-${Date.now()}.txt`
+              document.body.appendChild(a)
+              a.click()
+              document.body.removeChild(a)
+              URL.revokeObjectURL(url)
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
+          {!isGroup && activeChat?.peer_key && (
+            <button
+              className="btn-icon"
+              title="Жужжалка (разбудить контакта)"
+              onClick={async () => {
+                try {
+                  await invoke('send_nudge', { recipientPk: activeChat.peer_key })
+                  // Локальная тряска для отправителя — как в ICQ
+                  document.body.classList.remove('nudge-shake')
+                  void document.body.offsetWidth
+                  document.body.classList.add('nudge-shake')
+                  setTimeout(() => document.body.classList.remove('nudge-shake'), 600)
+                } catch (e) {
+                  console.warn('[nudge] send failed', e)
+                }
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+                <path d="M10 21a2 2 0 0 0 4 0"/>
+              </svg>
+            </button>
+          )}
           {!isGroup && (
             <button className="btn-icon" title="Удалить чат"
               style={{ color: '#e53e3e' }} onClick={handleDeleteChat}>

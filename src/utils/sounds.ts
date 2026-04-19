@@ -63,6 +63,37 @@ export function playOnlineSound() {
   } catch { }
 }
 
+// ICQ-жужжалка «бззз» — короткий низкий рёв (~400 мс)
+export function playBuzzSound() {
+  try {
+    const ctx = new AudioContext()
+    const osc1 = ctx.createOscillator()
+    const osc2 = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc1.connect(gain); osc2.connect(gain); gain.connect(ctx.destination)
+    osc1.type = 'sawtooth'; osc2.type = 'square'
+    // Два диссонирующих тона → характерный «бззз»
+    osc1.frequency.setValueAtTime(110, ctx.currentTime)
+    osc2.frequency.setValueAtTime(87, ctx.currentTime)
+    // Низкочастотная модуляция для вибрации
+    const lfo = ctx.createOscillator()
+    const lfoGain = ctx.createGain()
+    lfo.frequency.value = 18
+    lfoGain.gain.value = 20
+    lfo.connect(lfoGain)
+    lfoGain.connect(osc1.frequency)
+    gain.gain.setValueAtTime(0, ctx.currentTime)
+    gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.01)
+    gain.gain.setValueAtTime(0.18, ctx.currentTime + 0.35)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45)
+    lfo.start(ctx.currentTime)
+    osc1.start(ctx.currentTime); osc1.stop(ctx.currentTime + 0.45)
+    osc2.start(ctx.currentTime); osc2.stop(ctx.currentTime + 0.45)
+    lfo.stop(ctx.currentTime + 0.45)
+    setTimeout(() => ctx.close(), 600)
+  } catch { }
+}
+
 // Нисходящий тон — контакт вышел из сети (~400 мс)
 export function playOfflineSound() {
   try {

@@ -612,7 +612,7 @@ async fn on_relay_msg(
                 match packet.packet_type.as_str() {
                     "group_message" | "group_invite" | "member_left" | "group_dissolved"
                     | "read_receipt" | "reaction" | "edit_message" | "delete_message"
-                    | "contact_request" | "hello" => {
+                    | "contact_request" | "hello" | "nudge" | "typing" => {
                         crate::handle_lan_packet(app, packet);
                         return;
                     }

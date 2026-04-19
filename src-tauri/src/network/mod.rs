@@ -410,6 +410,17 @@ pub fn make_group_dissolved_packet(sender_pk: &str, group_id: &str) -> LanPacket
     }
 }
 
+/// Пакет «жужжалки» (nudge / buzz) — ICQ-классика, трясёт окно получателя
+pub fn make_nudge_packet(sender_pk: &str) -> LanPacket {
+    LanPacket {
+        v: 1,
+        packet_type: "nudge".to_string(),
+        id: uuid::Uuid::new_v4().to_string(),
+        ts: chrono::Utc::now().timestamp(),
+        payload: serde_json::json!({ "sender_pk": sender_pk }),
+    }
+}
+
 /// Пакет удаления сообщения
 pub fn make_delete_packet(sender_pk: &str, timestamp: i64) -> LanPacket {
     LanPacket {

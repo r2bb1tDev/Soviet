@@ -655,6 +655,74 @@ fn send_typing(
     Ok(())
 }
 
+/// Отправить «жужжалку» контакту. ICQ-классика: шлём по всем доступным каналам
+/// (LAN / P2P / Nostr DM) — должно дойти даже если друг в другой стране.
+#[tauri::command]
+fn send_nudge(
+    recipient_pk: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let id_guard = state.identity.lock().unwrap();
+    let ident = id_guard.as_ref().ok_or("No identity")?;
+    let my_pk = ident.public_key.clone();
+    drop(id_guard);
+
+    let packet = network::make_nudge_packet(&my_pk);
+    let mut any_sent = false;
+
+    // LAN
+    {
+        let lan_guard = state.lan.lock().unwrap();
+        if let Some(lan) = lan_guard.as_ref() {
+            if lan.is_peer_online(&recipient_pk) {
+                if lan.send_to_peer(&recipient_pk, &packet).is_ok() {
+                    any_sent = true;
+                }
+            }
+        }
+    }
+
+    // P2P mesh
+    {
+        let p2p_guard = state.p2p.lock().unwrap();
+        if let Some(p2p) = p2p_guard.as_ref() {
+            if let Some(peer_id) = p2p.is_peer_online(&recipient_pk) {
+                let data = serde_json::to_vec(&packet).unwrap_or_default();
+                if p2p.cmd_tx.try_send(p2p::P2pCmd::SendMessage { peer_id, data }).is_ok() {
+                    any_sent = true;
+                }
+            }
+        }
+    }
+
+    // Nostr DM fallback — всегда, для интернета
+    {
+        let kp_guard = state.keypair.lock().unwrap();
+        if let Some(kp) = kp_guard.as_ref() {
+            if let Ok(payload_bytes) = serde_json::to_vec(&packet) {
+                if let Ok(encrypted) = crypto::encrypt_message(kp, &recipient_pk, &payload_bytes) {
+                    if let Ok(enc_json) = serde_json::to_string(&encrypted) {
+                        drop(kp_guard);
+                        let nostr_guard = state.nostr.lock().unwrap();
+                        if let Some(n) = nostr_guard.as_ref() {
+                            if n.cmd_tx.try_send(nostr::NostrCmd::SendDm {
+                                recipient_soviet_pk: recipient_pk.clone(),
+                                encrypted_json: enc_json,
+                            }).is_ok() {
+                                any_sent = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if any_sent { Ok(()) } else {
+        Err("Не удалось отправить жужжалку — все каналы недоступны".to_string())
+    }
+}
+
 // ─── Commands — Settings / Status ────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize)]
@@ -874,6 +942,13 @@ pub fn handle_lan_packet(app: &AppHandle, packet: LanPacket) {
 
         "typing" => {
             app.emit("typing", &packet.payload).ok();
+        }
+
+        "nudge" => {
+            // Жужжалка/Nudge — ICQ-классика. Эмитим событие на фронтенд, который
+            // трясёт окно и проигрывает «бззз». Поле sender_pk используется для
+            // открытия правильного чата если окно не в фокусе.
+            app.emit("nudge", &packet.payload).ok();
         }
 
         "hello" => {
@@ -2202,6 +2277,7 @@ pub fn run() {
             send_message,
             decrypt_message_text,
             send_typing,
+            send_nudge,
             get_settings,
             save_settings,
             set_status,

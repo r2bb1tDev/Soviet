@@ -9,7 +9,7 @@ import Main from './pages/Main'
 import Settings from './pages/Settings'
 import ToastContainer from './components/Toast'
 import KeyboardShortcuts from './components/KeyboardShortcuts'
-import { isSoundEnabled, playNotificationBeep, playOnlineSound, playOfflineSound } from './utils/sounds'
+import { isSoundEnabled, playNotificationBeep, playOnlineSound, playOfflineSound, playBuzzSound } from './utils/sounds'
 import './styles/global.css'
 
 export default function App() {
@@ -121,6 +121,37 @@ export default function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  // ── Auto-away: 5 мин без активности → "away", возврат активности → "online" ──
+  useEffect(() => {
+    let idleTimer: number | undefined
+    let wasAutoAway = false
+    const IDLE_MS = 5 * 60 * 1000
+
+    const goAway = () => {
+      const st = useStore.getState()
+      if (st.myStatus === 'online') {
+        wasAutoAway = true
+        st.setMyStatus('away')
+      }
+    }
+    const reset = () => {
+      if (wasAutoAway) {
+        wasAutoAway = false
+        const st = useStore.getState()
+        if (st.myStatus === 'away') st.setMyStatus('online')
+      }
+      window.clearTimeout(idleTimer)
+      idleTimer = window.setTimeout(goAway, IDLE_MS)
+    }
+    const events: (keyof DocumentEventMap)[] = ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart']
+    events.forEach(ev => document.addEventListener(ev, reset, { passive: true }))
+    reset()
+    return () => {
+      window.clearTimeout(idleTimer)
+      events.forEach(ev => document.removeEventListener(ev, reset))
+    }
   }, [])
 
   // Экспортируем функции для вызова из трея через window.__tray*
@@ -343,6 +374,32 @@ export default function App() {
       loadChats()
     })
 
+    // ── Жужжалка (ICQ Nudge) ─────────────────────────────────────────────────
+    const unlistenNudge = listen<{ sender_pk: string }>('nudge', async (e) => {
+      // Тряска всего окна
+      document.body.classList.remove('nudge-shake')
+      void document.body.offsetWidth
+      document.body.classList.add('nudge-shake')
+      setTimeout(() => document.body.classList.remove('nudge-shake'), 600)
+      // Звук «бззз»
+      if (await isSoundEnabled()) playBuzzSound()
+      // Toast
+      const contact = useStore.getState().contacts.find(c => c.public_key === e.payload.sender_pk)
+      const name = contact?.local_alias ?? contact?.nickname ?? 'Контакт'
+      addToast({
+        type: 'message',
+        title: '🔔 Жужжалка!',
+        body: `${name} вас разбудил!`,
+        senderPk: e.payload.sender_pk,
+      })
+      if (document.visibilityState === 'hidden') {
+        try {
+          const { sendNotification } = await import('@tauri-apps/plugin-notification')
+          sendNotification({ title: '🔔 Жужжалка!', body: `${name} вас разбудил!` })
+        } catch { }
+      }
+    })
+
     return () => {
       document.removeEventListener('contextmenu', preventCtx)
       ;[
@@ -352,7 +409,7 @@ export default function App() {
         unlistenGI, unlistenGM, unlistenGL, unlistenGD,
         unlistenCE, unlistenCDl, unlistenCR, unlistenCD,
         unlistenP2pOn, unlistenP2pOff, unlistenP2pF, unlistenP2pL,
-        unlistenOB,
+        unlistenOB, unlistenNudge,
       ].forEach(p => p.then(f => f()))
     }
   }, [])
