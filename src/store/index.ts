@@ -205,11 +205,16 @@ interface AppStore {
   // Chats & Messages
   chats: Chat[]
   activeChat: Chat | null
+  openTabs: Chat[]
+  activeTabId: number | null
   messages: Message[]
   decryptedMessages: Record<number, string>
   reactions: Record<number, Reaction[]>
   loadChats: () => Promise<void>
   setActiveChat: (chat: Chat | null) => void
+  openTab: (chat: Chat) => void
+  closeTab: (chatId: number) => void
+  switchTab: (chatId: number) => void
   loadMessages: (chatId: number) => Promise<void>
   loadMoreMessages: (chatId: number, beforeTs: number) => Promise<number>
   sendMessage: (recipientPk: string, text: string, replyToId?: number | null) => Promise<void>
@@ -374,6 +379,8 @@ export const useStore = create<AppStore>((set, get) => ({
 
   chats: [],
   activeChat: null,
+  openTabs: [],
+  activeTabId: null,
   messages: [],
   decryptedMessages: {},
   reactions: {},
@@ -383,9 +390,67 @@ export const useStore = create<AppStore>((set, get) => ({
   },
   setActiveChat: (chat) => {
     set({ activeChat: chat, messages: [], decryptedMessages: {}, reactions: {} })
+    if (chat) {
+      // Auto-add to tabs
+      set(s => {
+        const tabId = chat.id
+        const alreadyOpen = s.openTabs.some(t => t.id === tabId)
+        return {
+          openTabs: alreadyOpen ? s.openTabs : [...s.openTabs, chat],
+          activeTabId: tabId,
+        }
+      })
+    } else {
+      set({ activeTabId: null })
+    }
     if (chat && chat.id > 0) get().loadMessages(chat.id)
     // Обновляем контакты при переходе в чат — синхронизация аватарок
     get().loadContacts()
+  },
+  openTab: (chat) => {
+    set(s => {
+      const alreadyOpen = s.openTabs.some(t => t.id === chat.id)
+      return {
+        openTabs: alreadyOpen ? s.openTabs : [...s.openTabs, chat],
+        activeTabId: chat.id,
+        activeChat: chat,
+        messages: [],
+        decryptedMessages: {},
+        reactions: {},
+      }
+    })
+    if (chat.id > 0) get().loadMessages(chat.id)
+    get().loadContacts()
+  },
+  closeTab: (chatId) => {
+    set(s => {
+      const remaining = s.openTabs.filter(t => t.id !== chatId)
+      const wasActive = s.activeTabId === chatId
+      let newActiveTabId = s.activeTabId
+      let newActiveChat = s.activeChat
+      if (wasActive) {
+        const last = remaining[remaining.length - 1] ?? null
+        newActiveTabId = last?.id ?? null
+        newActiveChat = last
+      }
+      return {
+        openTabs: remaining,
+        activeTabId: newActiveTabId,
+        activeChat: newActiveChat,
+        messages: wasActive ? [] : s.messages,
+        decryptedMessages: wasActive ? {} : s.decryptedMessages,
+        reactions: wasActive ? {} : s.reactions,
+      }
+    })
+    const { activeTabId } = get()
+    if (activeTabId && activeTabId > 0) get().loadMessages(activeTabId)
+  },
+  switchTab: (chatId) => {
+    const { openTabs } = get()
+    const chat = openTabs.find(t => t.id === chatId)
+    if (!chat) return
+    set({ activeTabId: chatId, activeChat: chat, messages: [], decryptedMessages: {}, reactions: {} })
+    if (chatId > 0) get().loadMessages(chatId)
   },
   loadMessages: async (chatId) => {
     const messages = await invoke<Message[]>('get_messages', { chatId, limit: 50 })

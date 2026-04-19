@@ -17,7 +17,7 @@ interface Props {
 export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: Props) {
   const {
     identity, contacts, chats, lanPeers, p2pPeers, activeChat,
-    setActiveChat, sidebarSearch, setSidebarSearch,
+    openTab, sidebarSearch, setSidebarSearch,
     setPage, loadContacts, loadChats,
     contactRequests, loadContactRequests, myAvatar,
     channels, activeChannel, setActiveChannel, loadChannels,
@@ -136,7 +136,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 
   const openGroupChat = (chat: typeof chats[0]) => {
     setActiveChannel(null)
-    setActiveChat(chat)
+    openTab(chat)
   }
 
   const chatForContact = (pk: string) =>
@@ -146,7 +146,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     const chat = chatForContact(contact.public_key)
     // Сбрасываем активный канал при переходе в чаты
     setActiveChannel(null)
-    setActiveChat(chat ?? {
+    openTab(chat ?? {
       id: -1,
       chat_type: 'direct',
       peer_key: contact.public_key,
@@ -507,7 +507,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
                     myPk={identity?.public_key ?? ''}
                     onClick={() => {
                       const chat = chats.find(c => c.id === r.chat_id)
-                      if (chat) setActiveChat(chat)
+                      if (chat) openTab(chat)
                       clearSearch()
                       setSidebarSearch('')
                     }}

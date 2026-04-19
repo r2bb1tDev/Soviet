@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
 import ChannelWindow from '../components/ChannelWindow'
+import ChatTabs from '../components/ChatTabs'
 import AddContactModal from '../components/AddContactModal'
 import CreateChannelModal from '../components/CreateChannelModal'
 import CreateGroupModal from '../components/CreateGroupModal'
@@ -83,6 +84,7 @@ export default function Main() {
       </div>
 
       <div style={s.chat}>
+        <ChatTabs />
         {activeChannel
           ? <ChannelWindow />
           : activeChat

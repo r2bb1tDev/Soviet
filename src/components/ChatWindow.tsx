@@ -1080,6 +1080,10 @@ export default function ChatWindow() {
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function renderMessageText(text: string): React.ReactNode {
+  // Inline data:image/ — render as image directly
+  if (text.startsWith('data:image/')) {
+    return <InlineImage src={text} />
+  }
   const nodes: React.ReactNode[] = []
   const fencedRe = /```([^\n]*)\n?([\s\S]*?)```/g
   let last = 0
@@ -1106,6 +1110,7 @@ function renderMessageText(text: string): React.ReactNode {
 // ─── URL helper ───────────────────────────────────────────────────────────────
 
 const URL_RE = /(https?:\/\/[^\s<>"')\]]+)/g
+const IMAGE_URL_RE = /\.(png|jpe?g|gif|webp|svg)(\?[^\s]*)?$/i
 
 async function openUrl(url: string) {
   try {
@@ -1116,10 +1121,45 @@ async function openUrl(url: string) {
   }
 }
 
+function InlineImage({ src, alt }: { src: string; alt?: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <img
+        src={src}
+        alt={alt ?? ''}
+        style={{ maxWidth: 300, maxHeight: 200, borderRadius: 6, display: 'block', cursor: 'pointer', margin: '4px 0' }}
+        onClick={e => { e.stopPropagation(); setOpen(true) }}
+      />
+      {open && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'zoom-out',
+          }}
+          onClick={() => setOpen(false)}
+        >
+          <img
+            src={src}
+            alt={alt ?? ''}
+            style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, boxShadow: '0 8px 40px rgba(0,0,0,0.8)' }}
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
+  )
+}
+
 function renderWithLinks(text: string, baseKey: string | number): React.ReactNode[] {
   const parts = text.split(URL_RE)
   return parts.map((part, i) => {
     if (/^https?:\/\//.test(part)) {
+      if (IMAGE_URL_RE.test(part)) {
+        return <InlineImage key={`${baseKey}-img${i}`} src={part} />
+      }
       return (
         <a
           key={`${baseKey}-u${i}`}
@@ -1331,9 +1371,8 @@ function MessageBubble({
             </div>
           ) : isImage ? (
             <>
-              <img
+              <InlineImage
                 src={`data:${fileContent!.mime_type};base64,${fileContent!.data}`}
-                style={{ maxWidth: 280, maxHeight: 280, display: 'block' }}
                 alt={fileContent!.file_name}
               />
               <div style={{ padding: '4px 6px 2px', fontSize: 11, display: 'flex', justifyContent: 'flex-end', gap: 4,
