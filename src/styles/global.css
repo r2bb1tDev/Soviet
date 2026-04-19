@@ -5,74 +5,74 @@
 
 @import url('https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap');
 
-/* ── Terminal Theme (default + light) ── */
+/* ── Terminal Theme — Linux dark-grey (default + light) ── */
 :root, [data-theme="light"], [data-theme="dark"] {
-  /* Backgrounds */
-  --bg-primary:         #0A0A0A;
-  --bg-secondary:       #0D0D0D;
-  --bg-tertiary:        #111111;
-  --bg-hover:           #0F2218;
-  --bg-chat:            #050505;
-  --bg-sidebar:         #080808;
+  /* Backgrounds — true dark grey gradient */
+  --bg-primary:         #1A1A1A;
+  --bg-secondary:       #222222;
+  --bg-tertiary:        #2A2A2A;
+  --bg-hover:           #303030;
+  --bg-chat:            #181818;
+  --bg-sidebar:         #1F1F1F;
 
-  /* Accent — softer emerald green */
-  --accent:             #2ECC71;
-  --accent-hover:       #27AE60;
-  --accent-text:        #000000;
+  /* Accent — light grey/white for highlights (no color) */
+  --accent:             #D0D0D0;
+  --accent-hover:       #FFFFFF;
+  --accent-text:        #1A1A1A;
 
-  /* Text — light mint, comfortable to read */
-  --text-primary:       #C8FFD4;
-  --text-secondary:     #6ECC8A;
-  --text-muted:         #2E6642;
-  --text-link:          #5EDFFF;
+  /* Text — readable greys */
+  --text-primary:       #E0E0E0;
+  --text-secondary:     #A0A0A0;
+  --text-muted:         #606060;
+  --text-link:          #8AB4D8;
 
   /* Bubbles — flat, terminal-style */
-  --bubble-out-bg:      #071A0F;
-  --bubble-out-text:    #C8FFD4;
-  --bubble-out-meta:    #3D8855;
-  --bubble-in-bg:       #0A0A0A;
-  --bubble-in-text:     #C8FFD4;
-  --bubble-in-meta:     #2E6642;
+  --bubble-out-bg:      #2D2D2D;
+  --bubble-out-text:    #E8E8E8;
+  --bubble-out-meta:    #808080;
+  --bubble-in-bg:       #1F1F1F;
+  --bubble-in-text:     #D0D0D0;
+  --bubble-in-meta:     #606060;
   --bubble-radius:      0px;
   --bubble-radius-tail: 0px;
 
   /* Channel */
-  --bubble-channel-bg:  #0A0A0A;
-  --bubble-channel-text:#C8FFD4;
+  --bubble-channel-bg:  #1F1F1F;
+  --bubble-channel-text:#D0D0D0;
 
   /* Sidebar row */
-  --row-active-bg:      #071A0F;
-  --row-unread-badge:   #2ECC71;
-  --row-muted-badge:    #0D3320;
+  --row-active-bg:      #2D2D2D;
+  --row-unread-badge:   #D0D0D0;
+  --row-muted-badge:    #404040;
 
   /* Borders */
-  --border:             #1A3D26;
-  --border-light:       #0D2218;
-  --divider:            #1A3D26;
+  --border:             #3A3A3A;
+  --border-light:       #2A2A2A;
+  --divider:            #3A3A3A;
 
   /* Status */
-  --online:             #2ECC71;
-  --away:               #F0C040;
-  --busy:               #E05252;
-  --offline:            #3A3A3A;
+  --online:             #6EB668;
+  --away:               #C8A040;
+  --busy:               #C85050;
+  --offline:            #505050;
 
   /* Inputs */
-  --input-bg:           #050505;
-  --input-border:       #1A3D26;
-  --input-focus:        #2ECC71;
-  --input-compose-bg:   #050505;
+  --input-bg:           #181818;
+  --input-border:       #3A3A3A;
+  --input-focus:        #C0C0C0;
+  --input-compose-bg:   #181818;
 
   /* Misc */
-  --shadow:             rgba(46,204,113,0.07);
-  --shadow-md:          rgba(46,204,113,0.13);
-  --scrollbar:          #1A3D26;
-  --btn-secondary:      #0D0D0D;
-  --header-bg:          #050505;
-  --header-text:        #C8FFD4;
-  --header-sub:         #6ECC8A;
-  --tick-read:          #2ECC71;
-  --tick-delivered:     #4A8A5E;
-  --tick-sent:          #2A4A35;
+  --shadow:             rgba(0,0,0,0.3);
+  --shadow-md:          rgba(0,0,0,0.5);
+  --scrollbar:          #3A3A3A;
+  --btn-secondary:      #2A2A2A;
+  --header-bg:          #1A1A1A;
+  --header-text:        #E0E0E0;
+  --header-sub:         #A0A0A0;
+  --tick-read:          #C0C0C0;
+  --tick-delivered:     #808080;
+  --tick-sent:          #505050;
 }
 
 /* ── Light Theme Overrides ── */
@@ -168,8 +168,8 @@ html::after {
   );
 }
 
-/* Phosphor glow — мягкое свечение */
-:root { --glow: 0 0 4px rgba(46,204,113,0.20); }
+/* Soft grey glow — subtle terminal highlight */
+:root { --glow: 0 0 3px rgba(208,208,208,0.25); }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -179,7 +179,7 @@ html::after {
 
 /* ── Typography ── */
 a { color: var(--text-link); text-decoration: none; }
-a:hover { text-decoration: underline; color: #5EDFFF; }
+a:hover { text-decoration: underline; color: #B0D0E8; }
 
 /* ── Input / Textarea ── */
 input, textarea {
@@ -218,7 +218,7 @@ button:active { opacity: 0.75; }
 
 .btn-primary {
   background: var(--accent);
-  color: #000;
+  color: var(--accent-text);
   padding: 7px 18px;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -226,7 +226,7 @@ button:active { opacity: 0.75; }
   border: 1px solid var(--accent);
 }
 .btn-primary:hover {
-  background: #000;
+  background: var(--bg-primary);
   color: var(--accent);
   box-shadow: var(--glow);
 }
@@ -291,9 +291,9 @@ button:active { opacity: 0.75; }
   background: var(--bubble-out-bg);
   color: var(--bubble-out-text);
   border-left: 2px solid var(--accent);
-  border-top: 1px solid #1A4D2E;
-  border-right: 1px solid #1A4D2E;
-  border-bottom: 1px solid #1A4D2E;
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .bubble.in {
   background: var(--bubble-in-bg);
@@ -357,7 +357,7 @@ button:active { opacity: 0.75; }
   border-left: 2px solid var(--accent);
   padding: 3px 8px;
   margin-bottom: 4px;
-  background: rgba(46,204,113,0.06);
+  background: rgba(208,208,208,0.05);
   font-size: 11px;
   color: var(--text-secondary);
 }
@@ -395,10 +395,10 @@ button:active { opacity: 0.75; }
   border-radius: 0;         /* square block cursor */
   flex-shrink: 0;
 }
-.status-dot.online    { background: var(--online);  box-shadow: 0 0 3px rgba(46,204,113,0.5); }
-.status-dot.away      { background: var(--away);    box-shadow: 0 0 3px rgba(240,192,64,0.4); }
-.status-dot.busy      { background: var(--busy);    box-shadow: 0 0 3px rgba(224,82,82,0.4); }
-.status-dot.dnd       { background: var(--busy);    box-shadow: 0 0 3px rgba(224,82,82,0.4); }
+.status-dot.online    { background: var(--online);  box-shadow: 0 0 3px rgba(110,182,104,0.5); }
+.status-dot.away      { background: var(--away);    box-shadow: 0 0 3px rgba(200,160,64,0.4); }
+.status-dot.busy      { background: var(--busy);    box-shadow: 0 0 3px rgba(200,80,80,0.4); }
+.status-dot.dnd       { background: var(--busy);    box-shadow: 0 0 3px rgba(200,80,80,0.4); }
 .status-dot.na        { background: #888; }
 .status-dot.offline   { background: var(--offline); }
 .status-dot.invisible { background: #333; }
@@ -409,7 +409,7 @@ button:active { opacity: 0.75; }
   height: 18px;
   border-radius: 0;
   background: var(--accent);
-  color: #000;
+  color: #1A1A1A;
   font-size: 10px;
   font-weight: 700;
   display: inline-flex;

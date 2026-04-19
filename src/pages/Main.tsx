@@ -119,7 +119,7 @@ function EmptyState({ onAddContact }: { onAddContact: () => void }) {
       <div style={s.features}>
         <FeatureItem icon="🔒" text="E2E шифрование" />
         <FeatureItem icon="📡" text="LAN без интернета" />
-        <FeatureItem icon="⚡" text="Nostr-каналы" />
+        <FeatureItem icon="🌍" text="Интернет через Nostr-relays" />
         <FeatureItem icon="🔑" text="Ваши ключи — ваши данные" />
       </div>
       <button className="btn-primary" style={s.addBtn} onClick={onAddContact}>
