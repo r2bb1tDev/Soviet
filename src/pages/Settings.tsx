@@ -5,6 +5,14 @@ import { useStore } from '../store'
 import BearLogo from '../components/BearLogo'
 import ShareCard from '../components/ShareCard'
 
+const SKINS = [
+  { id: 'terminal', label: 'Terminal', preview: { bg: '#1A1A1A', accent: '#D0D0D0', sidebar: '#1F1F1F', bubble: '#2D2D2D' } },
+  { id: 'icq',      label: 'ICQ',      preview: { bg: '#E8ECF0', accent: '#0066CC', sidebar: '#D4DAE3', bubble: '#FFF4A3' } },
+  { id: 'matrix',   label: 'Matrix',   preview: { bg: '#000000', accent: '#00FF41', sidebar: '#050F05', bubble: '#002200' } },
+  { id: 'amber',    label: 'Amber',    preview: { bg: '#1A0E00', accent: '#FFB000', sidebar: '#1E1000', bubble: '#332000' } },
+  { id: 'purple',   label: 'Purple',   preview: { bg: '#17212B', accent: '#8E85EE', sidebar: '#17212B', bubble: '#2B5278' } },
+]
+
 export default function Settings() {
   const { identity, setPage, setIdentity, myStatus, setMyStatus, myAvatar, setMyAvatar, p2pPeers } = useStore()
   const [showShareCard, setShowShareCard] = useState(false)
@@ -13,6 +21,7 @@ export default function Settings() {
   const [notifySounds, setNotifySounds] = useState(true)
   const [lanEnabled, setLanEnabled] = useState(true)
   const [theme, setTheme] = useState('system')
+  const [themeSkin, setThemeSkin] = useState('terminal')
   const [customId, setCustomId] = useState('')
   const [customIdError, setCustomIdError] = useState('')
   const [privKey, setPrivKey] = useState('')
@@ -67,6 +76,7 @@ export default function Settings() {
       setNotifySounds(s.notify_sounds)
       setLanEnabled(s.lan_enabled)
       setTheme(s.theme)
+      setThemeSkin(s.theme_skin ?? 'terminal')
       if (s.avatar_data) setAvatarPreview(s.avatar_data)
       if (s.custom_id) setCustomId(s.custom_id)
       setAutoResponse(s.auto_response ?? '')
@@ -107,6 +117,14 @@ export default function Settings() {
     }
   }
 
+  const applySkin = (skin: string) => {
+    if (skin && skin !== 'terminal') {
+      document.documentElement.setAttribute('data-theme-skin', skin)
+    } else {
+      document.documentElement.removeAttribute('data-theme-skin')
+    }
+  }
+
   const validateCustomId = (val: string) => {
     if (val.length === 0) return ''
     if (val.length < 3) return 'Минимум 3 символа'
@@ -143,6 +161,7 @@ export default function Settings() {
           ignore_list: ignoreList,
           away_message: awayMessage,
           dnd_message: dndMessage,
+          theme_skin: themeSkin,
         }
       })
       setMyAvatar(avatarPreview)
@@ -343,7 +362,43 @@ export default function Settings() {
                     </button>
                   ))}
                 </div>
-                <Toggle label="Звуки уведомлений" value={notifySounds} onChange={setNotifySounds} />
+
+                <Label style={{ marginTop: 14 }}>Скин</Label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                  {SKINS.map(sk => (
+                    <button
+                      key={sk.id}
+                      title={sk.label}
+                      onClick={() => { setThemeSkin(sk.id); applySkin(sk.id) }}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                        gap: 4, border: themeSkin === sk.id ? '2px solid var(--accent)' : '2px solid var(--border)',
+                        borderRadius: 6, padding: '6px 8px', cursor: 'pointer',
+                        background: themeSkin === sk.id ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                        minWidth: 60,
+                      }}
+                    >
+                      <div style={{
+                        width: 48, height: 30, borderRadius: 3,
+                        background: sk.preview.bg,
+                        border: `2px solid ${sk.preview.accent}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        gap: 3, overflow: 'hidden', position: 'relative',
+                      }}>
+                        <div style={{ width: 14, height: 20, background: sk.preview.sidebar, borderRadius: 1 }} />
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 2px 2px 0' }}>
+                          <div style={{ height: 5, background: sk.preview.bubble, borderRadius: 1, width: '70%', alignSelf: 'flex-end' }} />
+                          <div style={{ height: 5, background: sk.preview.accent, borderRadius: 1, width: '50%' }} />
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                        {sk.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <Toggle label="Звуки уведомлений" value={notifySounds} onChange={setNotifySounds} style={{ marginTop: 12 }} />
                 <Toggle label="Высокий контраст" value={highContrast} onChange={v => { setHighContrast(v); applyContrast(v) }} />
                 <Label style={{ marginTop: 12 }}>Масштаб интерфейса</Label>
                 <div style={s.radioRow}>
@@ -477,9 +532,9 @@ function Label({ children, style }: { children: React.ReactNode; style?: React.C
   return <label style={{ ...sc.label, ...style }}>{children}</label>
 }
 
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, value, onChange, style }: { label: string; value: boolean; onChange: (v: boolean) => void; style?: React.CSSProperties }) {
   return (
-    <div style={sc.toggleRow} onClick={() => onChange(!value)}>
+    <div style={{ ...sc.toggleRow, ...style }} onClick={() => onChange(!value)}>
       <span style={sc.toggleLabel}>{label}</span>
       <div style={{ ...sc.toggle, background: value ? 'var(--accent)' : 'var(--bg-tertiary)' }}>
         <div style={{ ...sc.toggleKnob, transform: value ? 'translateX(18px)' : 'translateX(2px)' }} />

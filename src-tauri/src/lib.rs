@@ -759,6 +759,8 @@ pub struct Settings {
     // Feature 2: away/dnd auto-reply messages
     pub away_message: String,
     pub dnd_message: String,
+    // v2.7.0: theme skin
+    pub theme_skin: String,
 }
 
 #[tauri::command]
@@ -783,6 +785,7 @@ fn get_settings(state: State<AppState>) -> Result<Settings, String> {
         ignore_list: get("ignore_list"),
         away_message: if get("away_message").is_empty() { "Я отошёл — отвечу позже.".to_string() } else { get("away_message") },
         dnd_message: if get("dnd_message").is_empty() { "Не беспокоить — отвечу позже.".to_string() } else { get("dnd_message") },
+        theme_skin: if get("theme_skin").is_empty() { "terminal".to_string() } else { get("theme_skin") },
     })
 }
 
@@ -807,6 +810,7 @@ fn save_settings(settings: Settings, state: State<AppState>) -> Result<(), Strin
     storage::set_setting(&db, "ignore_list", &settings.ignore_list).ok();
     storage::set_setting(&db, "away_message", &settings.away_message).ok();
     storage::set_setting(&db, "dnd_message", &settings.dnd_message).ok();
+    storage::set_setting(&db, "theme_skin", &settings.theme_skin).ok();
     Ok(())
 }
 

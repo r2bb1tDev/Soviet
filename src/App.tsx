@@ -88,6 +88,13 @@ export default function App() {
       else if (t === 'light') { document.documentElement.setAttribute('data-theme', 'light'); resolved = 'light' }
       else                    { resolved = mq.matches ? 'dark' : 'light' }
       localStorage.setItem('soviet_theme', resolved)
+      // Apply skin (orthogonal to dark/light)
+      const skin = s?.theme_skin ?? 'terminal'
+      if (skin && skin !== 'terminal') {
+        document.documentElement.setAttribute('data-theme-skin', skin)
+      } else {
+        document.documentElement.removeAttribute('data-theme-skin')
+      }
     }).catch(() => {})
 
     // Восстанавливаем масштаб и высокий контраст из localStorage

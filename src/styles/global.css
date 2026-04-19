@@ -137,6 +137,240 @@
 
 [data-theme="light"] html::after { display: none; }
 
+/* ═══════════════════════════════════════════════════════════════
+   СКИНЫ / THEME SKINS — v2.7.0
+   Applied via data-theme-skin on <html>. Orthogonal to data-theme.
+═══════════════════════════════════════════════════════════════ */
+
+/* ── ICQ skin — classic blue/yellow, light ── */
+:root[data-theme-skin="icq"] {
+  --bg-primary:         #E8ECF0;
+  --bg-secondary:       #D8DDE5;
+  --bg-tertiary:        #CDD3DC;
+  --bg-hover:           #C2C9D4;
+  --bg-chat:            #F0F4F8;
+  --bg-sidebar:         #D4DAE3;
+
+  --accent:             #0066CC;
+  --accent-hover:       #0052A3;
+  --accent-text:        #FFFFFF;
+
+  --text-primary:       #1A1A1A;
+  --text-secondary:     #333333;
+  --text-muted:         #666666;
+  --text-link:          #0066CC;
+
+  --bubble-out-bg:      #FFF4A3;
+  --bubble-out-text:    #1A1A1A;
+  --bubble-out-meta:    #7A7020;
+  --bubble-in-bg:       #FFFFFF;
+  --bubble-in-text:     #1A1A1A;
+  --bubble-in-meta:     #666666;
+  --bubble-channel-bg:  #FFFFFF;
+  --bubble-channel-text:#1A1A1A;
+
+  --row-active-bg:      #C2D8F0;
+  --row-unread-badge:   #0066CC;
+  --row-muted-badge:    #A0AABB;
+
+  --border:             #B0B8C8;
+  --border-light:       #C8D0DC;
+  --divider:            #B0B8C8;
+
+  --online:             #2D8A3E;
+  --away:               #C08020;
+  --busy:               #CC2222;
+  --offline:            #888888;
+
+  --input-bg:           #FFFFFF;
+  --input-border:       #B0B8C8;
+  --input-focus:        #0066CC;
+  --input-compose-bg:   #FFFFFF;
+
+  --shadow:             rgba(0,0,0,0.12);
+  --shadow-md:          rgba(0,0,0,0.2);
+  --scrollbar:          #B0B8C8;
+  --btn-secondary:      #D8DDE5;
+  --header-bg:          #0066CC;
+  --header-text:        #FFFFFF;
+  --header-sub:         #CCE0FF;
+  --tick-read:          #2D8A3E;
+  --tick-delivered:     #7AAA7A;
+  --tick-sent:          #AAAAAA;
+}
+:root[data-theme-skin="icq"] html::after { display: none; }
+
+/* ── Matrix skin — green phosphor on black ── */
+:root[data-theme-skin="matrix"] {
+  --bg-primary:         #000000;
+  --bg-secondary:       #0A0A0A;
+  --bg-tertiary:        #0D1A0D;
+  --bg-hover:           #0A200A;
+  --bg-chat:            #000000;
+  --bg-sidebar:         #050F05;
+
+  --accent:             #00FF41;
+  --accent-hover:       #00CC33;
+  --accent-text:        #000000;
+
+  --text-primary:       #00FF41;
+  --text-secondary:     #00B030;
+  --text-muted:         #006018;
+  --text-link:          #00FF41;
+
+  --bubble-out-bg:      #002200;
+  --bubble-out-text:    #00FF41;
+  --bubble-out-meta:    #008820;
+  --bubble-in-bg:       #001100;
+  --bubble-in-text:     #00CC33;
+  --bubble-in-meta:     #006618;
+  --bubble-channel-bg:  #001100;
+  --bubble-channel-text:#00CC33;
+
+  --row-active-bg:      #002800;
+  --row-unread-badge:   #00FF41;
+  --row-muted-badge:    #004010;
+
+  --border:             #004010;
+  --border-light:       #002808;
+  --divider:            #004010;
+
+  --online:             #00FF41;
+  --away:               #88FF00;
+  --busy:               #FF4400;
+  --offline:            #006018;
+
+  --input-bg:           #000800;
+  --input-border:       #004010;
+  --input-focus:        #00FF41;
+  --input-compose-bg:   #000800;
+
+  --shadow:             rgba(0,255,65,0.05);
+  --shadow-md:          rgba(0,255,65,0.1);
+  --scrollbar:          #004010;
+  --btn-secondary:      #0A1A0A;
+  --header-bg:          #000000;
+  --header-text:        #00FF41;
+  --header-sub:         #00B030;
+  --tick-read:          #00FF41;
+  --tick-delivered:     #008820;
+  --tick-sent:          #004010;
+}
+
+/* ── Amber CRT skin ── */
+:root[data-theme-skin="amber"] {
+  --bg-primary:         #1A0E00;
+  --bg-secondary:       #221200;
+  --bg-tertiary:        #2A1800;
+  --bg-hover:           #332000;
+  --bg-chat:            #150B00;
+  --bg-sidebar:         #1E1000;
+
+  --accent:             #FFB000;
+  --accent-hover:       #CC8C00;
+  --accent-text:        #1A0E00;
+
+  --text-primary:       #FFD580;
+  --text-secondary:     #CC9E40;
+  --text-muted:         #80600A;
+  --text-link:          #FFB000;
+
+  --bubble-out-bg:      #332000;
+  --bubble-out-text:    #FFD580;
+  --bubble-out-meta:    #B07000;
+  --bubble-in-bg:       #221200;
+  --bubble-in-text:     #CCAA50;
+  --bubble-in-meta:     #806010;
+  --bubble-channel-bg:  #221200;
+  --bubble-channel-text:#CCAA50;
+
+  --row-active-bg:      #3A2800;
+  --row-unread-badge:   #FFB000;
+  --row-muted-badge:    #5A3A00;
+
+  --border:             #5A3A00;
+  --border-light:       #3A2200;
+  --divider:            #5A3A00;
+
+  --online:             #FFB000;
+  --away:               #CC7700;
+  --busy:               #FF4400;
+  --offline:            #5A3A00;
+
+  --input-bg:           #110800;
+  --input-border:       #5A3A00;
+  --input-focus:        #FFB000;
+  --input-compose-bg:   #110800;
+
+  --shadow:             rgba(255,176,0,0.05);
+  --shadow-md:          rgba(255,176,0,0.12);
+  --scrollbar:          #5A3A00;
+  --btn-secondary:      #2A1800;
+  --header-bg:          #1A0E00;
+  --header-text:        #FFD580;
+  --header-sub:         #B07000;
+  --tick-read:          #FFB000;
+  --tick-delivered:     #B07000;
+  --tick-sent:          #5A3A00;
+}
+
+/* ── Purple skin — modern dark (Telegram-style dark) ── */
+:root[data-theme-skin="purple"] {
+  --bg-primary:         #17212B;
+  --bg-secondary:       #1E2C3A;
+  --bg-tertiary:        #242F3D;
+  --bg-hover:           #2A3848;
+  --bg-chat:            #0E1621;
+  --bg-sidebar:         #17212B;
+
+  --accent:             #8E85EE;
+  --accent-hover:       #7A70D8;
+  --accent-text:        #FFFFFF;
+
+  --text-primary:       #FFFFFF;
+  --text-secondary:     #AAAAAA;
+  --text-muted:         #666666;
+  --text-link:          #8E85EE;
+
+  --bubble-out-bg:      #2B5278;
+  --bubble-out-text:    #FFFFFF;
+  --bubble-out-meta:    #7BA8D0;
+  --bubble-in-bg:       #1E2C3A;
+  --bubble-in-text:     #FFFFFF;
+  --bubble-in-meta:     #7A8A9A;
+  --bubble-channel-bg:  #1E2C3A;
+  --bubble-channel-text:#FFFFFF;
+
+  --row-active-bg:      #2A3848;
+  --row-unread-badge:   #8E85EE;
+  --row-muted-badge:    #3A4858;
+
+  --border:             #2A3848;
+  --border-light:       #1E2C3A;
+  --divider:            #2A3848;
+
+  --online:             #4FAE4E;
+  --away:               #C0A030;
+  --busy:               #E05050;
+  --offline:            #4A5A6A;
+
+  --input-bg:           #0E1621;
+  --input-border:       #2A3848;
+  --input-focus:        #8E85EE;
+  --input-compose-bg:   #0E1621;
+
+  --shadow:             rgba(0,0,0,0.3);
+  --shadow-md:          rgba(0,0,0,0.5);
+  --scrollbar:          #2A3848;
+  --btn-secondary:      #1E2C3A;
+  --header-bg:          #17212B;
+  --header-text:        #FFFFFF;
+  --header-sub:         #AAAAAA;
+  --tick-read:          #8E85EE;
+  --tick-delivered:     #5A6A8A;
+  --tick-sent:          #3A4858;
+}
+
 /* ── Reset & Base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 

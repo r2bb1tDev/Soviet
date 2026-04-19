@@ -29,6 +29,22 @@ export default function ChatTabs() {
   const dragSrcIndex = useRef<number | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
+  // Hover preview tooltip
+  const [hoverTooltip, setHoverTooltip] = useState<{ chatId: number; x: number; y: number } | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const onTabMouseEnter = useCallback((e: React.MouseEvent, chatId: number) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    hoverTimer.current = setTimeout(() => {
+      setHoverTooltip({ chatId, x: rect.left, y: rect.bottom + 4 })
+    }, 500)
+  }, [])
+
+  const onTabMouseLeave = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    setHoverTooltip(null)
+  }, [])
+
   // Close context menu on outside click
   useEffect(() => {
     if (!contextMenu) return
@@ -141,6 +157,8 @@ export default function ChatTabs() {
                 outline: isDragTarget ? '1px dashed var(--accent)' : 'none',
               }}
               onClick={() => switchTab(tab.id)}
+              onMouseEnter={(e) => onTabMouseEnter(e, tab.id)}
+              onMouseLeave={onTabMouseLeave}
               onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(tab.id) } }}
               onContextMenu={(e) => {
                 e.preventDefault()
@@ -172,6 +190,41 @@ export default function ChatTabs() {
           )
         })}
       </div>
+
+      {hoverTooltip && (() => {
+        const hChat = chats.find(c => c.id === hoverTooltip.chatId)
+        const hTab = openTabs.find(t => t.id === hoverTooltip.chatId)
+        const preview = hChat?.last_message ?? hTab?.last_message ?? null
+        if (!preview) return null
+        const name = hTab ? (hTab.chat_type === 'group'
+          ? (hTab.group_name ?? 'Группа')
+          : contacts.find(c => c.public_key === hTab.peer_key)?.local_alias
+            ?? contacts.find(c => c.public_key === hTab.peer_key)?.nickname
+            ?? hTab.peer_key?.slice(0, 10) + '…'
+          ) : ''
+        return (
+          <div style={{
+            position: 'fixed',
+            left: Math.min(hoverTooltip.x, window.innerWidth - 220),
+            top: hoverTooltip.y,
+            zIndex: 9998,
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            boxShadow: '0 4px 16px var(--shadow-md)',
+            padding: '8px 10px',
+            maxWidth: 210,
+            pointerEvents: 'none',
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>
+              {name}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {preview.length > 60 ? preview.slice(0, 60) + '…' : preview}
+            </div>
+          </div>
+        )
+      })()}
 
       {contextMenu && menuTab && (
         <div
