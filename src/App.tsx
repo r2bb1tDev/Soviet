@@ -99,24 +99,69 @@ export default function App() {
     return () => mq.removeEventListener('change', e => applyOS(e.matches))
   }, [])
 
-  // Горячие клавиши: Ctrl+F → поиск, Ctrl+N → новый чат
+  // Горячие клавиши: Ctrl+F → поиск, Ctrl+N → новый чат, tab navigation
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      const ctrl = e.ctrlKey || e.metaKey
+
+      if (ctrl && e.key === 'f') {
         e.preventDefault()
         window.dispatchEvent(new CustomEvent('soviet:focus-search'))
+        return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      if (ctrl && e.key === 'n') {
         e.preventDefault()
         window.dispatchEvent(new CustomEvent('soviet:new-chat'))
+        return
       }
       if (e.key === 'Escape') {
         setShowShortcuts(false)
         window.dispatchEvent(new CustomEvent('soviet:escape'))
+        return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      if (ctrl && e.key === '/') {
         e.preventDefault()
         setShowShortcuts(v => !v)
+        return
+      }
+
+      // Tab keyboard shortcuts
+      if (ctrl) {
+        const { openTabs, activeTabId, switchTab, closeTab, reopenLastClosedTab } = get()
+        if (!openTabs.length) return
+
+        const activeIndex = openTabs.findIndex(t => t.id === activeTabId)
+
+        if (e.key === 'Tab' && !e.shiftKey) {
+          e.preventDefault()
+          const next = (activeIndex + 1) % openTabs.length
+          switchTab(openTabs[next].id)
+          return
+        }
+        if (e.key === 'Tab' && e.shiftKey) {
+          e.preventDefault()
+          const prev = (activeIndex - 1 + openTabs.length) % openTabs.length
+          switchTab(openTabs[prev].id)
+          return
+        }
+        if (/^[1-9]$/.test(e.key)) {
+          const idx = parseInt(e.key, 10) - 1
+          if (idx < openTabs.length) {
+            e.preventDefault()
+            switchTab(openTabs[idx].id)
+          }
+          return
+        }
+        if (e.key === 'w' && !e.shiftKey) {
+          e.preventDefault()
+          if (activeTabId !== null) closeTab(activeTabId)
+          return
+        }
+        if (e.key === 'T' || (e.key === 't' && e.shiftKey)) {
+          e.preventDefault()
+          reopenLastClosedTab()
+          return
+        }
       }
     }
     window.addEventListener('keydown', handler)

@@ -207,6 +207,8 @@ interface AppStore {
   activeChat: Chat | null
   openTabs: Chat[]
   activeTabId: number | null
+  pinnedTabIds: Set<number>
+  recentlyClosedTabs: Chat[]
   messages: Message[]
   decryptedMessages: Record<number, string>
   reactions: Record<number, Reaction[]>
@@ -215,6 +217,9 @@ interface AppStore {
   openTab: (chat: Chat) => void
   closeTab: (chatId: number) => void
   switchTab: (chatId: number) => void
+  reorderTabs: (fromIndex: number, toIndex: number) => void
+  togglePinTab: (chatId: number) => void
+  reopenLastClosedTab: () => void
   loadMessages: (chatId: number) => Promise<void>
   loadMoreMessages: (chatId: number, beforeTs: number) => Promise<number>
   sendMessage: (recipientPk: string, text: string, replyToId?: number | null) => Promise<void>
@@ -381,6 +386,8 @@ export const useStore = create<AppStore>((set, get) => ({
   activeChat: null,
   openTabs: [],
   activeTabId: null,
+  pinnedTabIds: new Set<number>(),
+  recentlyClosedTabs: [],
   messages: [],
   decryptedMessages: {},
   reactions: {},
@@ -424,6 +431,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
   closeTab: (chatId) => {
     set(s => {
+      const closing = s.openTabs.find(t => t.id === chatId)
       const remaining = s.openTabs.filter(t => t.id !== chatId)
       const wasActive = s.activeTabId === chatId
       let newActiveTabId = s.activeTabId
@@ -433,10 +441,17 @@ export const useStore = create<AppStore>((set, get) => ({
         newActiveTabId = last?.id ?? null
         newActiveChat = last
       }
+      const newPinned = new Set(s.pinnedTabIds)
+      newPinned.delete(chatId)
+      const recentlyClosed = closing
+        ? [closing, ...s.recentlyClosedTabs.slice(0, 9)]
+        : s.recentlyClosedTabs
       return {
         openTabs: remaining,
         activeTabId: newActiveTabId,
         activeChat: newActiveChat,
+        pinnedTabIds: newPinned,
+        recentlyClosedTabs: recentlyClosed,
         messages: wasActive ? [] : s.messages,
         decryptedMessages: wasActive ? {} : s.decryptedMessages,
         reactions: wasActive ? {} : s.reactions,
@@ -444,6 +459,29 @@ export const useStore = create<AppStore>((set, get) => ({
     })
     const { activeTabId } = get()
     if (activeTabId && activeTabId > 0) get().loadMessages(activeTabId)
+  },
+  reorderTabs: (fromIndex, toIndex) => {
+    set(s => {
+      const tabs = [...s.openTabs]
+      const [moved] = tabs.splice(fromIndex, 1)
+      tabs.splice(toIndex, 0, moved)
+      return { openTabs: tabs }
+    })
+  },
+  togglePinTab: (chatId) => {
+    set(s => {
+      const pinned = new Set(s.pinnedTabIds)
+      if (pinned.has(chatId)) pinned.delete(chatId)
+      else pinned.add(chatId)
+      return { pinnedTabIds: pinned }
+    })
+  },
+  reopenLastClosedTab: () => {
+    const { recentlyClosedTabs } = get()
+    if (!recentlyClosedTabs.length) return
+    const [tab, ...rest] = recentlyClosedTabs
+    set({ recentlyClosedTabs: rest })
+    get().openTab(tab)
   },
   switchTab: (chatId) => {
     const { openTabs } = get()

@@ -1,3 +1,4 @@
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { useStore, Chat } from '../store'
 
 function stringToColor(str: string): string {
@@ -11,8 +12,35 @@ function stringToColor(str: string): string {
   return palette[Math.abs(hash) % palette.length]
 }
 
+interface ContextMenu {
+  x: number
+  y: number
+  chatId: number
+}
+
 export default function ChatTabs() {
-  const { openTabs, activeTabId, switchTab, closeTab, contacts, chats } = useStore()
+  const {
+    openTabs, activeTabId, switchTab, closeTab, contacts, chats,
+    reorderTabs, togglePinTab, pinnedTabIds,
+  } = useStore()
+
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const dragSrcIndex = useRef<number | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!contextMenu) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [contextMenu])
+
 
   if (openTabs.length <= 1) return null
 
@@ -32,8 +60,7 @@ export default function ChatTabs() {
 
   const getAvatarLetter = (tab: Chat): string => {
     if (tab.chat_type === 'group') return (tab.group_name ?? 'G').charAt(0).toUpperCase()
-    const name = getDisplayName(tab)
-    return name.charAt(0).toUpperCase()
+    return getDisplayName(tab).charAt(0).toUpperCase()
   }
 
   const getAvatarColor = (tab: Chat): string => {
@@ -49,52 +76,129 @@ export default function ChatTabs() {
     return null
   }
 
-  return (
-    <div style={s.tabBar}>
-      {openTabs.map(tab => {
-        const isActive = tab.id === activeTabId
-        const name = getDisplayName(tab)
-        const unread = getUnread(tab)
-        const avatarSrc = getAvatar(tab)
-        const letter = getAvatarLetter(tab)
-        const color = getAvatarColor(tab)
+  // Drag handlers
+  const onDragStart = useCallback((index: number) => {
+    dragSrcIndex.current = index
+  }, [])
 
-        return (
-          <div
-            key={tab.id}
-            style={{
-              ...s.tab,
-              borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-              background: isActive ? 'var(--bg-tertiary)' : 'transparent',
-              color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-            }}
-            onClick={() => switchTab(tab.id)}
-            onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(tab.id) } }}
-            title={name}
-          >
-            <div style={{ ...s.tabAvatar, background: avatarSrc ? 'transparent' : color }}>
-              {avatarSrc
-                ? <img src={avatarSrc} style={s.tabAvatarImg} alt="" />
-                : letter
-              }
-            </div>
-            <span style={s.tabName}>{name.length > 12 ? name.slice(0, 12) + '…' : name}</span>
-            {unread > 0 && (
-              <span className="unread-badge" style={s.tabBadge}>
-                {unread > 99 ? '99+' : unread}
-              </span>
-            )}
-            <button
-              style={s.closeBtn}
-              onClick={(e) => { e.stopPropagation(); closeTab(tab.id) }}
-              title="Закрыть"
+  const onDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    setDragOverIndex(index)
+  }, [])
+
+  const onDrop = useCallback((toIndex: number) => {
+    const fromIndex = dragSrcIndex.current
+    if (fromIndex !== null && fromIndex !== toIndex) {
+      reorderTabs(fromIndex, toIndex)
+    }
+    dragSrcIndex.current = null
+    setDragOverIndex(null)
+  }, [reorderTabs])
+
+  const onDragEnd = useCallback(() => {
+    dragSrcIndex.current = null
+    setDragOverIndex(null)
+  }, [])
+
+  // Right-click menu actions
+  const closeOthers = (chatId: number) => {
+    openTabs.filter(t => t.id !== chatId).forEach(t => closeTab(t.id))
+    setContextMenu(null)
+  }
+
+  const menuTab = contextMenu ? openTabs.find(t => t.id === contextMenu.chatId) : null
+
+  return (
+    <>
+      <div style={s.tabBar}>
+        {openTabs.map((tab, index) => {
+          const isActive = tab.id === activeTabId
+          const isPinned = pinnedTabIds.has(tab.id)
+          const name = getDisplayName(tab)
+          const unread = getUnread(tab)
+          const avatarSrc = getAvatar(tab)
+          const letter = getAvatarLetter(tab)
+          const color = getAvatarColor(tab)
+          const isDragTarget = dragOverIndex === index
+
+          return (
+            <div
+              key={tab.id}
+              draggable
+              onDragStart={() => onDragStart(index)}
+              onDragOver={(e) => onDragOver(e, index)}
+              onDrop={() => onDrop(index)}
+              onDragEnd={onDragEnd}
+              style={{
+                ...s.tab,
+                borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+                background: isActive
+                  ? 'var(--bg-tertiary)'
+                  : isDragTarget
+                    ? 'var(--bg-hover, rgba(255,255,255,0.07))'
+                    : 'transparent',
+                color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                outline: isDragTarget ? '1px dashed var(--accent)' : 'none',
+              }}
+              onClick={() => switchTab(tab.id)}
+              onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(tab.id) } }}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setContextMenu({ x: e.clientX, y: e.clientY, chatId: tab.id })
+              }}
+              title={name + (isPinned ? ' (закреплён)' : '')}
             >
-              ×
-            </button>
+              {isPinned && <span style={s.pinDot} title="Закреплён" />}
+              <div style={{ ...s.tabAvatar, background: avatarSrc ? 'transparent' : color }}>
+                {avatarSrc
+                  ? <img src={avatarSrc} style={s.tabAvatarImg} alt="" />
+                  : letter
+                }
+              </div>
+              <span style={s.tabName}>{name.length > 12 ? name.slice(0, 12) + '…' : name}</span>
+              {unread > 0 && (
+                <span className="unread-badge" style={s.tabBadge}>
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+              <button
+                style={s.closeBtn}
+                onClick={(e) => { e.stopPropagation(); closeTab(tab.id) }}
+                title="Закрыть"
+              >
+                ×
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {contextMenu && menuTab && (
+        <div
+          ref={menuRef}
+          style={{
+            ...s.ctxMenu,
+            left: Math.min(contextMenu.x, window.innerWidth - 180),
+            top: Math.min(contextMenu.y, window.innerHeight - 200),
+          }}
+        >
+          <div style={s.ctxItem} onClick={() => { switchTab(contextMenu.chatId); setContextMenu(null) }}>
+            Перейти в чат
           </div>
-        )
-      })}
-    </div>
+          <div style={s.ctxItem} onClick={() => { togglePinTab(contextMenu.chatId); setContextMenu(null) }}>
+            {pinnedTabIds.has(contextMenu.chatId) ? 'Открепить' : 'Закрепить'}
+          </div>
+          <div style={s.ctxDivider} />
+          <div style={s.ctxItem} onClick={() => closeOthers(contextMenu.chatId)}>
+            Закрыть остальные
+          </div>
+          <div style={{ ...s.ctxItem, color: 'var(--text-danger, #e55)' }}
+            onClick={() => { closeTab(contextMenu.chatId); setContextMenu(null) }}>
+            Закрыть
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -120,6 +224,13 @@ const s: Record<string, React.CSSProperties> = {
     minWidth: 90,
     userSelect: 'none',
     position: 'relative',
+  },
+  pinDot: {
+    width: 5,
+    height: 5,
+    borderRadius: '50%',
+    background: 'var(--accent)',
+    flexShrink: 0,
   },
   tabAvatar: {
     width: 20,
@@ -171,5 +282,26 @@ const s: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     width: 16,
     height: 16,
+  },
+  ctxMenu: {
+    position: 'fixed',
+    zIndex: 9999,
+    background: 'var(--bg-primary)',
+    border: '1px solid var(--border)',
+    borderRadius: 7,
+    boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+    minWidth: 168,
+    padding: '4px 0',
+  },
+  ctxItem: {
+    padding: '7px 14px',
+    fontSize: 13,
+    cursor: 'pointer',
+    color: 'var(--text-primary)',
+  },
+  ctxDivider: {
+    height: 1,
+    background: 'var(--border)',
+    margin: '3px 0',
   },
 }

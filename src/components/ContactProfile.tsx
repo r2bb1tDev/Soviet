@@ -18,6 +18,8 @@ export default function ContactProfile({ contact, onClose }: Props) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isStealth, setIsStealth] = useState(false)
+  // activityDays: counts of messages per day for last 7 days (index 0 = 6 days ago, index 6 = today)
+  const [activityDays, setActivityDays] = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
 
   useEffect(() => {
     invoke<string>('get_safety_number', { peerPk: contact.public_key })
@@ -27,6 +29,24 @@ export default function ContactProfile({ contact, onClose }: Props) {
       .then(list => setIsStealth(list.includes(contact.public_key)))
       .catch(() => {})
   }, [contact.public_key])
+
+  // Load 7-day activity from message timestamps
+  const chat = chats.find(c => c.chat_type === 'direct' && c.peer_key === contact.public_key)
+  useEffect(() => {
+    if (!chat || chat.id <= 0) return
+    invoke<{ timestamp: number }[]>('get_messages', { chatId: chat.id, limit: 500 })
+      .then(msgs => {
+        const counts = [0, 0, 0, 0, 0, 0, 0]
+        const nowDay = Math.floor(Date.now() / 86400000)
+        for (const m of msgs) {
+          const msgDay = Math.floor((m.timestamp * 1000) / 86400000)
+          const diff = nowDay - msgDay
+          if (diff >= 0 && diff < 7) counts[6 - diff]++
+        }
+        setActivityDays(counts)
+      })
+      .catch(() => {})
+  }, [chat?.id])
 
   const toggleStealth = async () => {
     try {
@@ -192,6 +212,11 @@ export default function ContactProfile({ contact, onClose }: Props) {
             </div>
           </Section>
 
+          {/* 7-day activity sparkline */}
+          <Section title="Активность (7 дней)">
+            <ActivitySparkline days={activityDays} />
+          </Section>
+
           {/* Safety Number */}
           {safetyNumber && (
             <Section title="Safety Number">
@@ -238,6 +263,44 @@ export default function ContactProfile({ contact, onClose }: Props) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function ActivitySparkline({ days }: { days: number[] }) {
+  const max = Math.max(...days, 1)
+  const dayLabels = ['', '', '', '', '', '', 'сег']
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 36 }}>
+      {days.map((count, i) => {
+        const heightPct = Math.max(count / max, count > 0 ? 0.08 : 0)
+        return (
+          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            <div
+              title={`${count} сообщ.`}
+              style={{
+                width: '100%',
+                height: 24,
+                display: 'flex',
+                alignItems: 'flex-end',
+              }}
+            >
+              <div style={{
+                width: '100%',
+                height: `${Math.round(heightPct * 100)}%`,
+                minHeight: count > 0 ? 2 : 0,
+                background: count > 0 ? 'var(--accent)' : 'var(--bg-tertiary)',
+                borderRadius: 2,
+                opacity: count > 0 ? 0.75 + 0.25 * (count / max) : 0.3,
+                transition: 'height 0.3s',
+              }} />
+            </div>
+            <span style={{ fontSize: 9, color: 'var(--text-muted)', lineHeight: 1 }}>
+              {dayLabels[i]}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
