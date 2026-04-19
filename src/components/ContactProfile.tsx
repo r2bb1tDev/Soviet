@@ -17,12 +17,27 @@ export default function ContactProfile({ contact, onClose }: Props) {
   const [saved, setSaved] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [isStealth, setIsStealth] = useState(false)
 
   useEffect(() => {
     invoke<string>('get_safety_number', { peerPk: contact.public_key })
       .then(setSafetyNumber)
       .catch(() => {})
+    invoke<string[]>('get_stealth_list')
+      .then(list => setIsStealth(list.includes(contact.public_key)))
+      .catch(() => {})
   }, [contact.public_key])
+
+  const toggleStealth = async () => {
+    try {
+      if (isStealth) {
+        await invoke('remove_stealth', { pk: contact.public_key })
+      } else {
+        await invoke('add_stealth', { pk: contact.public_key })
+      }
+      setIsStealth(v => !v)
+    } catch {}
+  }
 
   const save = async () => {
     await invoke('update_contact', {
@@ -99,6 +114,20 @@ export default function ContactProfile({ contact, onClose }: Props) {
               "{contact.status_text}"
             </div>
           )}
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+            {contact.status === 'online'
+              ? <span style={{ color: 'var(--online)' }}>В сети</span>
+              : contact.last_seen
+                ? (() => {
+                    const diffSec = Math.floor(Date.now() / 1000 - contact.last_seen)
+                    if (diffSec < 60) return 'был(а) в сети только что'
+                    if (diffSec < 3600) return `был(а) в сети ${Math.floor(diffSec / 60)} мин назад`
+                    if (diffSec < 86400) return `был(а) в сети ${Math.floor(diffSec / 3600)} ч назад`
+                    return `был(а) в сети ${Math.floor(diffSec / 86400)} д назад`
+                  })()
+                : 'не в сети'
+            }
+          </div>
           <div style={s.statusLabel}>
             {contact.verified && <span style={s.verifiedBadge}>✓ Верифицирован</span>}
             {contact.is_favorite && <span style={s.favBadge}>★ Избранное</span>}
@@ -154,6 +183,12 @@ export default function ContactProfile({ contact, onClose }: Props) {
                 🚫 Заблокировать
               </span>
               <Toggle value={isBlocked} color={isBlocked ? 'var(--busy)' : undefined} />
+            </div>
+            <div style={s.toggleRow} onClick={toggleStealth}>
+              <span style={{ ...s.toggleLabel, color: isStealth ? 'var(--away)' : 'var(--text-primary)' }}>
+                👁 Режим невидимки
+              </span>
+              <Toggle value={isStealth} color={isStealth ? 'var(--away)' : undefined} />
             </div>
           </Section>
 

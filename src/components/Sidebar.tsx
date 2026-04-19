@@ -37,6 +37,9 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const [groupCtxMenu, setGroupCtxMenu] = useState<{ chat: typeof chats[0]; x: number; y: number } | null>(null)
   const [showUserSearch, setShowUserSearch] = useState(false)
   const [showTransfers, setShowTransfers] = useState(false)
+  const [showStatusPanel, setShowStatusPanel] = useState(false)
+  const [customStatusText, setCustomStatusText] = useState('')
+  const statusPanelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { loadChannels() }, [])
   useEffect(() => {
@@ -86,6 +89,18 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
+
+  // Закрыть панель статуса при клике снаружи
+  useEffect(() => {
+    if (!showStatusPanel) return
+    const handler = (e: MouseEvent) => {
+      if (statusPanelRef.current && !statusPanelRef.current.contains(e.target as Node)) {
+        setShowStatusPanel(false)
+      }
+    }
+    window.addEventListener('mousedown', handler)
+    return () => window.removeEventListener('mousedown', handler)
+  }, [showStatusPanel])
 
   const pendingRequest = contactRequests[0] ?? null
 
@@ -176,18 +191,100 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           <div style={s.myNick} className="truncate">{identity?.nickname ?? 'Soviet'}</div>
           <div style={s.myId}>{customId ? `@${customId}` : <span style={{opacity:0.5, fontSize:11}}>нет ID</span>}</div>
         </div>
-        <select
-          value={myStatus}
-          onChange={e => setMyStatus(e.target.value)}
-          title="Статус"
-          style={s.statusSelect}
-        >
-          <option value="online">В сети</option>
-          <option value="away">Отошёл</option>
-          <option value="na">Недоступен</option>
-          <option value="dnd">Не беспокоить</option>
-          <option value="invisible">Невидимка</option>
-        </select>
+        {/* Status dropdown */}
+        <div style={{ position: 'relative' }} ref={statusPanelRef}>
+          <button
+            title="Статус"
+            style={{
+              ...s.statusSelect,
+              background: 'none', border: '1px solid var(--border)',
+              borderRadius: 8, cursor: 'pointer', color: 'var(--text-secondary)',
+              display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px',
+              fontSize: 12,
+            }}
+            onClick={e => { e.stopPropagation(); setShowStatusPanel(v => !v) }}
+          >
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+              background: myStatus === 'online' ? 'var(--online)'
+                : myStatus === 'away' ? 'var(--away)'
+                : myStatus === 'dnd' ? 'var(--busy)'
+                : myStatus === 'invisible' ? 'var(--text-muted)'
+                : 'var(--offline)',
+            }} />
+            {myStatus === 'online' ? 'В сети'
+              : myStatus === 'away' ? 'Отошёл'
+              : myStatus === 'dnd' ? 'Не беспокоить'
+              : myStatus === 'na' ? 'Недоступен'
+              : myStatus === 'invisible' ? 'Невидимка'
+              : myStatus}
+          </button>
+
+          {showStatusPanel && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, zIndex: 500,
+              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+              borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
+              width: 220, padding: '8px 0',
+            }} onClick={e => e.stopPropagation()}>
+              {/* Базовые статусы */}
+              {([
+                ['online', 'В сети', 'var(--online)'],
+                ['away', 'Отошёл', 'var(--away)'],
+                ['dnd', 'Не беспокоить', 'var(--busy)'],
+                ['na', 'Недоступен', 'var(--offline)'],
+                ['invisible', 'Невидимка', 'var(--text-muted)'],
+              ] as [string, string, string][]).map(([val, label, color]) => (
+                <button key={val} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  width: '100%', padding: '7px 14px', background: myStatus === val ? 'rgba(0,255,65,0.08)' : 'none',
+                  border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontSize: 13,
+                  textAlign: 'left',
+                }} onClick={() => { setMyStatus(val, ''); setShowStatusPanel(false) }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                  {label}
+                </button>
+              ))}
+              {/* Готовые сообщения */}
+              <div style={{ height: 1, background: 'var(--border)', margin: '6px 0' }} />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 14px 6px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Готовые сообщения
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '0 10px 8px' }}>
+                {['На работе', 'Обедаю', 'Занят', 'В отпуске', 'На созвоне', 'Кодю'].map(preset => (
+                  <button key={preset} style={{
+                    fontSize: 11, padding: '3px 8px',
+                    background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                    borderRadius: 6, cursor: 'pointer', color: 'var(--text-secondary)',
+                  }} onClick={() => { setMyStatus('dnd', preset); setShowStatusPanel(false) }}>
+                    {preset}
+                  </button>
+                ))}
+              </div>
+              {/* Свой статус */}
+              <div style={{ height: 1, background: 'var(--border)', marginBottom: 6 }} />
+              <div style={{ padding: '0 10px 8px', display: 'flex', gap: 6 }}>
+                <input
+                  style={{
+                    flex: 1, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                    borderRadius: 6, padding: '4px 8px', fontSize: 12, color: 'var(--text-primary)',
+                    outline: 'none',
+                  }}
+                  placeholder="Свой статус..."
+                  value={customStatusText}
+                  onChange={e => setCustomStatusText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { setMyStatus(myStatus, customStatusText); setShowStatusPanel(false); setCustomStatusText('') }
+                  }}
+                />
+                <button className="btn-primary" style={{ fontSize: 11, padding: '4px 8px', flexShrink: 0 }}
+                  onClick={() => { setMyStatus(myStatus, customStatusText); setShowStatusPanel(false); setCustomStatusText('') }}>
+                  OK
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {/* + Добавить в друзья */}
           <button className="btn-icon" title="Добавить контакт" style={s.headerBtn}

@@ -798,6 +798,38 @@ fn set_status(status: String, text: String, state: State<AppState>) -> Result<()
     Ok(())
 }
 
+// ─── Stealth mode commands ─────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_stealth_list(state: State<AppState>) -> Result<Vec<String>, String> {
+    let db = state.db.0.lock().unwrap();
+    let raw = storage::get_setting(&db, "stealth_list").ok().flatten().unwrap_or_default();
+    if raw.is_empty() {
+        Ok(vec![])
+    } else {
+        Ok(raw.split(',').map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
+    }
+}
+
+#[tauri::command]
+fn add_stealth(pk: String, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    let raw = storage::get_setting(&db, "stealth_list").ok().flatten().unwrap_or_default();
+    let mut list: Vec<String> = raw.split(',').map(|s| s.to_string()).filter(|s| !s.is_empty()).collect();
+    if !list.contains(&pk) {
+        list.push(pk);
+    }
+    storage::set_setting(&db, "stealth_list", &list.join(",")).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_stealth(pk: String, state: State<AppState>) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    let raw = storage::get_setting(&db, "stealth_list").ok().flatten().unwrap_or_default();
+    let list: Vec<String> = raw.split(',').map(|s| s.to_string()).filter(|s| !s.is_empty() && *s != pk).collect();
+    storage::set_setting(&db, "stealth_list", &list.join(",")).map_err(|e| e.to_string())
+}
+
 // ─── Commands — Outbox (offline queue UI) ─────────────────────────────────────
 
 #[tauri::command]
@@ -2316,6 +2348,9 @@ pub fn run() {
             search_messages,
             sign_out,
             set_tray_update_badge,
+            get_stealth_list,
+            add_stealth,
+            remove_stealth,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Soviet");

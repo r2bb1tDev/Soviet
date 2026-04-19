@@ -175,3 +175,40 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
           updaterJsonPreferNsis: true
+
+      # ── Диагностика: показать ВСЕ артефакты что tauri-action собрал ───────────
+      # Помогает отловить случай когда .sig файлы создаются но не загружаются.
+      - name: Diagnose — list bundle artifacts
+        if: always()
+        shell: bash
+        run: |
+          echo "=== Bundle directory contents ==="
+          find src-tauri/target -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.app.tar.gz" -o -name "*.sig" -o -name "latest.json" \) 2>/dev/null | sort || true
+          echo ""
+          echo "=== .sig files specifically ==="
+          find src-tauri/target -name "*.sig" 2>/dev/null || echo "NONE FOUND"
+
+      # ── Явный upload .sig файлов (страховка) ────────────────────────────────
+      # tauri-action должен уже их загрузить, но если что-то пошло не так —
+      # этот шаг догружает любые .sig + latest.json которые остались на диске.
+      - name: Upload .sig files and latest.json to release (fallback)
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set +e
+          FILES=$(find src-tauri/target -type f \( -name "*.sig" -o -name "latest.json" \) 2>/dev/null)
+          if [ -z "$FILES" ]; then
+            echo "No .sig or latest.json files found — skipping fallback upload"
+            exit 0
+          fi
+          echo "Files to upload as fallback:"
+          echo "$FILES"
+          # Используем gh CLI который предустановлен на runners
+          command -v gh >/dev/null 2>&1 || { echo "gh CLI missing"; exit 0; }
+          for f in $FILES; do
+            echo "Uploading $f to release $TAG..."
+            gh release upload "$TAG" "$f" --clobber --repo "${{ github.repository }}" || echo "Upload of $f failed (may already exist)"
+          done

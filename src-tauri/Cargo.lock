@@ -6126,7 +6126,7 @@ dependencies = [
 
 [[package]]
 name = "sovietmsg"
-version = "2.5.24"
+version = "2.5.25"
 dependencies = [
  "anyhow",
  "bs58",

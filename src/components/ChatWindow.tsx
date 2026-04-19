@@ -54,6 +54,14 @@ export default function ChatWindow() {
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
 
+  // ── Поиск по истории (Ctrl+F) ──
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<number[]>([]) // индексы в массиве messages
+  const [searchIdx, setSearchIdx] = useState(0)
+  const [showSearch, setShowSearch] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLInputElement>(null)
@@ -135,10 +143,52 @@ export default function ChatWindow() {
       setReplyTo(null)
       setEditingId(null)
       setReactionPickerMsgId(null)
+      setShowSearch(false)
+      setSearchQuery('')
     }
     window.addEventListener('soviet:escape', handler)
     return () => window.removeEventListener('soviet:escape', handler)
   }, [])
+
+  // Ctrl+F — открыть поиск внутри чата (только когда activeChat открыт)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f' && activeChat) {
+        e.preventDefault()
+        setShowSearch(true)
+        setTimeout(() => searchInputRef.current?.focus(), 50)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [activeChat])
+
+  // Пересчёт результатов поиска при изменении запроса или сообщений
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([])
+      setSearchIdx(0)
+      return
+    }
+    const q = searchQuery.toLowerCase()
+    const results: number[] = []
+    messages.forEach((msg, i) => {
+      const txt = (decryptedMessages[msg.id] ?? msg.plaintext ?? '').toLowerCase()
+      if (txt.includes(q)) results.push(i)
+    })
+    setSearchResults(results)
+    setSearchIdx(results.length > 0 ? 0 : 0)
+  }, [searchQuery, messages, decryptedMessages])
+
+  // Скролл к текущему совпадению
+  useEffect(() => {
+    if (searchResults.length === 0) return
+    const msgIdx = searchResults[searchIdx]
+    const msg = messages[msgIdx]
+    if (!msg) return
+    const el = messageRefs.current.get(msg.id)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [searchIdx, searchResults])
 
   // Когда messages загружаются впервые (смена чата) — выставляем hasMore
   useEffect(() => {
@@ -639,6 +689,48 @@ export default function ChatWindow() {
         </div>
       </div>
 
+      {/* ── Поиск по истории (Ctrl+F) ── */}
+      {showSearch && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 12px', borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-secondary)', flexShrink: 0, zIndex: 20,
+        }}>
+          <input
+            ref={searchInputRef}
+            style={{
+              flex: 1, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '5px 10px', fontSize: 13, color: 'var(--text-primary)',
+              outline: 'none',
+            }}
+            placeholder="Поиск по сообщениям..."
+            value={searchQuery}
+            onChange={e => { setSearchQuery(e.target.value); setSearchIdx(0) }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                setSearchIdx(i => searchResults.length > 0 ? (i + 1) % searchResults.length : 0)
+              }
+              if (e.key === 'Enter' && e.shiftKey) {
+                e.preventDefault()
+                setSearchIdx(i => searchResults.length > 0 ? (i - 1 + searchResults.length) % searchResults.length : 0)
+              }
+              if (e.key === 'Escape') { setShowSearch(false); setSearchQuery('') }
+            }}
+          />
+          {searchResults.length > 0 && (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+              {searchIdx + 1} из {searchResults.length}
+            </span>
+          )}
+          {searchQuery && searchResults.length === 0 && (
+            <span style={{ fontSize: 12, color: 'var(--busy)', whiteSpace: 'nowrap' }}>Не найдено</span>
+          )}
+          <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px' }}
+            onClick={() => { setShowSearch(false); setSearchQuery('') }}>×</button>
+        </div>
+      )}
+
       {/* ── Message list ── */}
       <div ref={messagesContainerRef} style={s.messages} onScroll={handleContainerScroll}>
         {hasMore && (
@@ -685,28 +777,34 @@ export default function ChatWindow() {
               const replyQuote = msg.reply_to
                 ? (decryptedMessages[msg.reply_to] ?? messages.find(m => m.id === msg.reply_to)?.plaintext ?? null)
                 : null
+              const msgGlobalIdx = messages.indexOf(msg)
+              const isSearchMatch = searchResults.includes(msgGlobalIdx)
+              const isCurrentSearchMatch = searchResults[searchIdx] === msgGlobalIdx
               return (
-                <MessageBubble
-                  key={msg.id}
-                  msg={msg}
-                  isMine={isMine}
-                  text={msgText}
-                  msgReactions={msgReactions}
-                  myPk={identity?.public_key ?? ''}
-                  isEditing={editingId === msg.id}
-                  editText={editText}
-                  onEditChange={setEditText}
-                  onEditSubmit={submitEdit}
-                  onEditCancel={() => setEditingId(null)}
-                  onContextMenu={(e) => handleRightClick(e, msg, isMine, msgText)}
-                  onReact={(emoji) => handleReact(msg.id, emoji)}
-                  showReactionPicker={reactionPickerMsgId === msg.id}
-                  onToggleReactionPicker={(e) => {
-                    e.stopPropagation()
-                    setReactionPickerMsgId(v => v === msg.id ? null : msg.id)
-                  }}
-                  replyQuote={replyQuote}
-                />
+                <div key={msg.id} ref={el => { if (el) messageRefs.current.set(msg.id, el); else messageRefs.current.delete(msg.id) }}
+                  style={isCurrentSearchMatch ? { outline: '2px solid var(--accent)', borderRadius: 8 } : undefined}>
+                  <MessageBubble
+                    msg={msg}
+                    isMine={isMine}
+                    text={msgText}
+                    msgReactions={msgReactions}
+                    myPk={identity?.public_key ?? ''}
+                    isEditing={editingId === msg.id}
+                    editText={editText}
+                    onEditChange={setEditText}
+                    onEditSubmit={submitEdit}
+                    onEditCancel={() => setEditingId(null)}
+                    onContextMenu={(e) => handleRightClick(e, msg, isMine, msgText)}
+                    onReact={(emoji) => handleReact(msg.id, emoji)}
+                    showReactionPicker={reactionPickerMsgId === msg.id}
+                    onToggleReactionPicker={(e) => {
+                      e.stopPropagation()
+                      setReactionPickerMsgId(v => v === msg.id ? null : msg.id)
+                    }}
+                    replyQuote={replyQuote}
+                    searchQuery={isSearchMatch ? searchQuery : undefined}
+                  />
+                </div>
               )
             })}
           </div>
@@ -1054,13 +1152,24 @@ interface BubbleProps {
   showReactionPicker: boolean
   onToggleReactionPicker: (e: React.MouseEvent) => void
   replyQuote?: string | null
+  searchQuery?: string
+}
+
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query) return text
+  const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'))
+  return <>{parts.map((part, i) =>
+    part.toLowerCase() === query.toLowerCase()
+      ? <mark key={i} style={{ background: 'var(--accent)', color: '#000', borderRadius: 2, padding: '0 1px' }}>{part}</mark>
+      : part
+  )}</>
 }
 
 function MessageBubble({
   msg, isMine, text, msgReactions, myPk, isEditing, editText,
   onEditChange, onEditSubmit, onEditCancel,
   onContextMenu, onReact, showReactionPicker, onToggleReactionPicker,
-  replyQuote,
+  replyQuote, searchQuery,
 }: BubbleProps) {
   const time = new Date(msg.timestamp * 1000).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
   const reactionGroups = groupReactions(msgReactions, myPk)
@@ -1219,7 +1328,9 @@ function MessageBubble({
                 color: msg.is_deleted ? 'var(--text-muted)' : undefined,
               }}>
                 {text
-                  ? renderMessageText(text)
+                  ? (searchQuery && !msg.is_deleted
+                      ? highlightText(text, searchQuery)
+                      : renderMessageText(text))
                   : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>расшифровка...</span>
                 }
               </div>
