@@ -2,10 +2,8 @@ import { useState, useRef, useCallback } from 'react'
 import { useStore } from '../store'
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
-import ChannelWindow from '../components/ChannelWindow'
 import ChatTabs from '../components/ChatTabs'
 import AddContactModal from '../components/AddContactModal'
-import CreateChannelModal from '../components/CreateChannelModal'
 import CreateGroupModal from '../components/CreateGroupModal'
 import BearLogo from '../components/BearLogo'
 
@@ -14,9 +12,8 @@ const SIDEBAR_MAX = 420
 const SIDEBAR_DEFAULT = 260
 
 export default function Main() {
-  const { activeChat, activeChannel } = useStore()
+  const { activeChat } = useStore()
   const [addContactPrefill, setAddContactPrefill] = useState<{ pk?: string; nick?: string } | null>(null)
-  const [showCreateChannel, setShowCreateChannel] = useState(false)
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const stored = localStorage.getItem('sidebarWidth')
@@ -61,7 +58,6 @@ export default function Main() {
       <div style={{ width: sidebarWidth, flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Sidebar
           onAddContact={openAddContact}
-          onAddChannel={() => setShowCreateChannel(true)}
           onCreateGroup={() => setShowCreateGroup(true)}
         />
       </div>
@@ -85,11 +81,9 @@ export default function Main() {
 
       <div style={s.chat}>
         <ChatTabs />
-        {activeChannel
-          ? <ChannelWindow />
-          : activeChat
-            ? <ChatWindow />
-            : <EmptyState onAddContact={() => openAddContact()} />
+        {activeChat
+          ? <ChatWindow />
+          : <EmptyState onAddContact={() => openAddContact()} />
         }
       </div>
       {addContactPrefill !== null && (
@@ -98,9 +92,6 @@ export default function Main() {
           prefillNick={addContactPrefill.nick ?? ''}
           onClose={() => setAddContactPrefill(null)}
         />
-      )}
-      {showCreateChannel && (
-        <CreateChannelModal onClose={() => setShowCreateChannel(false)} />
       )}
       {showCreateGroup && (
         <CreateGroupModal onClose={() => setShowCreateGroup(false)} />
@@ -121,7 +112,7 @@ function EmptyState({ onAddContact }: { onAddContact: () => void }) {
       <div style={s.features}>
         <FeatureItem icon="🔒" text="E2E шифрование" />
         <FeatureItem icon="📡" text="LAN без интернета" />
-        <FeatureItem icon="🌍" text="Интернет через Nostr-relays" />
+        <FeatureItem icon="🌍" text="Интернет через Nostr DM" />
         <FeatureItem icon="🔑" text="Ваши ключи — ваши данные" />
       </div>
       <button className="btn-primary" style={s.addBtn} onClick={onAddContact}>

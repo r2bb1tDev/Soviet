@@ -18,16 +18,14 @@ export default function App() {
     page, setPage, loadIdentity, loadContacts, loadChats,
     loadLanPeers, loadP2pPeers, loadContactRequests, setMyStatus,
     loadMessages, setTyping, updateContactStatus,
-    addToast, loadChannels, addChannelMessage,
+    addToast,
     updateReaction, applyMessageEdit, applyMessageDelete,
-    applyChannelEdit, applyChannelDelete, applyChannelReaction,
   } = useStore()
   const get = useStore.getState
 
   // Счётчик непрочитанных для заголовка окна
   const totalUnread = useStore(s =>
-    s.chats.reduce((n, c) => n + (c.unread_count ?? 0), 0) +
-    s.channels.reduce((n, c) => n + (c.unread_count ?? 0), 0)
+    s.chats.reduce((n, c) => n + (c.unread_count ?? 0), 0)
   )
   useEffect(() => {
     document.title = totalUnread > 0
@@ -247,7 +245,6 @@ export default function App() {
       loadContactRequests()
       loadLanPeers()
       loadP2pPeers()
-      loadChannels()
       // Периодическое обновление: пиры каждые 15 сек, контакты + чаты каждые 30 сек
       const intervalFast = setInterval(() => {
         loadLanPeers()
@@ -350,15 +347,6 @@ export default function App() {
       }
     })
 
-    // ── Nostr канал — входящее сообщение ──────────────────────────────────────
-    const unlisten8 = listen<any>('nostr-message', (e) => {
-      const { activeChannel } = useStore.getState()
-      addChannelMessage(e.payload)
-      if (activeChannel?.channel_id !== e.payload.channel_id && !e.payload.is_mine) {
-        loadChannels()
-      }
-    })
-
     // ── Реакция на сообщение ──────────────────────────────────────────────────
     const unlistenR = listen<{ message_id: number; sender_pk: string; emoji: string; action: string }>('reaction-update', (e) => {
       updateReaction(e.payload.message_id, e.payload.sender_pk, e.payload.emoji, e.payload.action as 'add' | 'remove')
@@ -399,22 +387,6 @@ export default function App() {
       const { activeChat, setActiveChat, loadChats } = useStore.getState()
       if (activeChat?.group_id === e.payload.group_id) setActiveChat(null)
       loadChats()
-    })
-
-    // ── Nostr канал — правки, удаления, реакции ───────────────────────────────
-    const unlistenCE  = listen<{ event_id: string; new_content: string; edited_at: number }>('nostr-message-edited', (e) => {
-      applyChannelEdit(e.payload.event_id, e.payload.new_content, e.payload.edited_at)
-    })
-    const unlistenCDl = listen<{ event_id: string }>('nostr-message-deleted', (e) => {
-      applyChannelDelete(e.payload.event_id)
-    })
-    const unlistenCR  = listen<any>('nostr-reaction', (e) => applyChannelReaction(e.payload))
-    const unlistenCD  = listen<{ channel_id: string }>('nostr-channel-deleted', (e) => {
-      const st = useStore.getState()
-      if (st.activeChannel?.channel_id === e.payload.channel_id) {
-        useStore.setState({ activeChannel: null, channelMessages: [] })
-      }
-      useStore.setState(s => ({ channels: s.channels.filter(c => c.channel_id !== e.payload.channel_id) }))
     })
 
     // ── P2P события (mDNS / Kademlia DHT) ────────────────────────────────────
@@ -463,10 +435,9 @@ export default function App() {
       document.removeEventListener('contextmenu', preventCtx)
       ;[
         unlisten1, unlisten2, unlisten3, unlisten4, unlisten5,
-        unlisten6, unlisten7, unlisten8,
+        unlisten6, unlisten7,
         unlistenR, unlistenE, unlistenD,
         unlistenGI, unlistenGM, unlistenGL, unlistenGD,
-        unlistenCE, unlistenCDl, unlistenCR, unlistenCD,
         unlistenP2pOn, unlistenP2pOff, unlistenP2pF, unlistenP2pL,
         unlistenOB, unlistenNudge,
       ].forEach(p => p.then(f => f()))

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { useStore, Contact, NostrChannel, P2pPeer, SearchResult } from '../store'
+import { useStore, Contact, P2pPeer, SearchResult } from '../store'
 import ContactContextMenu from './ContactContextMenu'
 import ContactProfile from './ContactProfile'
 import IncomingRequestModal from './IncomingRequestModal'
@@ -10,30 +10,25 @@ import FileTransferWindow from './FileTransferWindow'
 
 interface Props {
   onAddContact: (prefill?: { pk?: string; nick?: string }) => void
-  onAddChannel?: () => void
   onCreateGroup?: () => void
 }
 
-export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: Props) {
+export default function Sidebar({ onAddContact, onCreateGroup }: Props) {
   const {
     identity, contacts, chats, lanPeers, p2pPeers, activeChat,
     openTab, sidebarSearch, setSidebarSearch,
     setPage, loadContacts, loadChats,
     contactRequests, loadContactRequests, myAvatar,
-    channels, activeChannel, setActiveChannel, loadChannels,
     myStatus, setMyStatus,
     searchResults, searchMessages, clearSearch,
   } = useStore()
 
-  const [tab, setTab] = useState<'chats' | 'channels'>('chats')
-  const [channelSearch, setChannelSearch] = useState('')
   const [customId, setCustomId] = useState('')
   const [contextMenu, setContextMenu] = useState<{
     contact: Contact; x: number; y: number
   } | null>(null)
   const [profileContact, setProfileContact] = useState<Contact | null>(null)
   const [showRequest, setShowRequest] = useState(false)
-  const [channelCtxMenu, setChannelCtxMenu] = useState<{ ch: NostrChannel; x: number; y: number } | null>(null)
   const [groupCtxMenu, setGroupCtxMenu] = useState<{ chat: typeof chats[0]; x: number; y: number } | null>(null)
   const [showUserSearch, setShowUserSearch] = useState(false)
   const [showTransfers, setShowTransfers] = useState(false)
@@ -41,7 +36,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const [customStatusText, setCustomStatusText] = useState('')
   const statusPanelRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { loadChannels() }, [])
   useEffect(() => {
     invoke<any>('get_settings').then(s => { if (s.custom_id) setCustomId(s.custom_id) }).catch(() => {})
   }, [])
@@ -72,7 +66,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     const handler = () => {
       setShowUserSearch(false)
       setShowRequest(false)
-      setChannelCtxMenu(null)
       setGroupCtxMenu(null)
     }
     window.addEventListener('soviet:escape', handler)
@@ -85,7 +78,7 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
   }, [sidebarSearch])
   useEffect(() => {
-    const close = () => { setChannelCtxMenu(null); setGroupCtxMenu(null) }
+    const close = () => { setGroupCtxMenu(null) }
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
@@ -135,7 +128,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
   const groupChats = chats.filter(c => c.chat_type === 'group')
 
   const openGroupChat = (chat: typeof chats[0]) => {
-    setActiveChannel(null)
     openTab(chat)
   }
 
@@ -144,8 +136,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
 
   const openChat = (contact: Contact) => {
     const chat = chatForContact(contact.public_key)
-    // Сбрасываем активный канал при переходе в чаты
-    setActiveChannel(null)
     openTab(chat ?? {
       id: -1,
       chat_type: 'direct',
@@ -186,8 +176,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
     loadContacts()
     loadChats()
   }
-
-  const totalChannelUnread = channels.reduce((n, c) => n + c.unread_count, 0)
 
   return (
     <div style={s.root}>
@@ -341,8 +329,8 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
             ref={searchInputRef}
             style={s.search}
             placeholder="Поиск"
-            value={tab === 'chats' ? sidebarSearch : channelSearch}
-            onChange={e => tab === 'chats' ? setSidebarSearch(e.target.value) : setChannelSearch(e.target.value)}
+            value={sidebarSearch}
+            onChange={e => setSidebarSearch(e.target.value)}
           />
           <button
             className="btn-icon"
@@ -357,26 +345,9 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
         </div>
       </div>
 
-      {/* ── Tabs ── */}
-      <div style={s.tabs}>
-        <button style={{ ...s.tabBtn, ...(tab === 'chats' ? s.tabActive : {}) }}
-          onClick={() => { setTab('chats'); setActiveChannel(null) }}>
-          Чаты
-        </button>
-        <button style={{ ...s.tabBtn, ...(tab === 'channels' ? s.tabActive : {}), position: 'relative' }}
-          onClick={() => setTab('channels')}>
-          Каналы
-          {totalChannelUnread > 0 && (
-            <span className="unread-badge" style={{ position: 'absolute', top: 2, right: 4, fontSize: 10, minWidth: 16, height: 16 }}>
-              {totalChannelUnread > 99 ? '99+' : totalChannelUnread}
-            </span>
-          )}
-        </button>
-      </div>
-
       {/* ── List ── */}
       <div style={s.list}>
-        {tab === 'chats' && (
+        {(
           <>
             {favorites.length > 0 && (
               <>
@@ -530,49 +501,16 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           </>
         )}
 
-        {tab === 'channels' && (
-          <>
-            {channels.length === 0 && (
-              <div style={s.empty}>
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ marginBottom: 12 }}>
-                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.4 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.82a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
-                </svg>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
-                  Нет каналов.<br />Создайте или вступите!
-                </div>
-              </div>
-            )}
-            {channels
-              .filter(ch => !channelSearch || ch.name.toLowerCase().includes(channelSearch.toLowerCase()))
-              .map(ch => (
-                <ChannelRow
-                  key={ch.channel_id}
-                  ch={ch}
-                  active={activeChannel?.channel_id === ch.channel_id}
-                  onClick={() => setActiveChannel(ch)}
-                  onContextMenu={e => { e.preventDefault(); setChannelCtxMenu({ ch, x: e.clientX, y: e.clientY }) }}
-                />
-              ))}
-          </>
-        )}
       </div>
 
       {/* ── Footer ── */}
       <div style={s.footer}>
-        {tab === 'chats' ? (
-          <>
-            <button className="btn-primary" style={s.footerBtn} onClick={() => onAddContact()}>
-              + Контакт
-            </button>
-            <button className="btn-secondary" style={s.footerBtn} onClick={() => onCreateGroup?.()}>
-              + Группа
-            </button>
-          </>
-        ) : (
-          <button className="btn-primary" style={{ ...s.footerBtn, flex: 1 }} onClick={() => onAddChannel?.()}>
-            + Канал
-          </button>
-        )}
+        <button className="btn-primary" style={s.footerBtn} onClick={() => onAddContact()}>
+          + Контакт
+        </button>
+        <button className="btn-secondary" style={s.footerBtn} onClick={() => onCreateGroup?.()}>
+          + Группа
+        </button>
       </div>
 
       {/* ── Bottom status bar (Connection) ── */}
@@ -600,26 +538,6 @@ export default function Sidebar({ onAddContact, onAddChannel, onCreateGroup }: P
           </>
         )}
       </div>
-
-      {/* ── Channel context menu ── */}
-      {channelCtxMenu && (
-        <div
-          style={{ ...s.ctxMenu, left: Math.min(channelCtxMenu.x, window.innerWidth - 200), top: Math.min(channelCtxMenu.y, window.innerHeight - 120) }}
-          onClick={e => e.stopPropagation()}
-        >
-          <button style={s.ctxItem} onClick={() => { setActiveChannel(channelCtxMenu.ch); setChannelCtxMenu(null) }}>
-            💬 Открыть
-          </button>
-          <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
-          <button style={{ ...s.ctxItem, color: 'var(--busy)' }} onClick={async () => {
-            if (!confirm(`Покинуть «${channelCtxMenu.ch.name}»?`)) return
-            await useStore.getState().leaveChannel(channelCtxMenu.ch.channel_id)
-            setChannelCtxMenu(null)
-          }}>
-            🚪 Покинуть
-          </button>
-        </div>
-      )}
 
       {groupCtxMenu && (
         <div
@@ -746,49 +664,6 @@ function ContactRow({ contact, active, unread, displayName, lastMsg, lastTime, o
           </span>
           {unread > 0 && (
             <span className="unread-badge">{unread > 99 ? '99+' : unread}</span>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ChannelRow({ ch, active, onClick, onContextMenu }: {
-  ch: NostrChannel
-  active: boolean
-  onClick: () => void
-  onContextMenu: (e: React.MouseEvent) => void
-}) {
-  const initials = ch.name ? ch.name.charAt(0).toUpperCase() : '#'
-  return (
-    <div
-      style={{
-        ...row.wrap,
-        background: active ? 'var(--row-active-bg)' : 'transparent',
-      }}
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hover)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = active ? 'var(--row-active-bg)' : 'transparent' }}
-    >
-      {ch.picture && ch.picture.startsWith('data:')
-        ? <img src={ch.picture} style={{ ...row.avatar, objectFit: 'cover' } as React.CSSProperties} />
-        : <div style={{ ...row.avatar, background: '#7B68EE', color: '#fff', fontSize: 16, fontWeight: 700 }}>
-            {initials}
-          </div>
-      }
-      <div style={row.info}>
-        <div style={row.top}>
-          <span style={row.name} className="truncate">{ch.name || 'Канал'}</span>
-        </div>
-        <div style={row.bottom}>
-          <span style={row.sub} className="truncate">
-            {ch.about
-              ? (ch.about.length > 55 ? ch.about.slice(0, 55) + '…' : ch.about)
-              : (ch.last_message ?? 'Нет сообщений')}
-          </span>
-          {ch.unread_count > 0 && (
-            <span className="unread-badge">{ch.unread_count > 99 ? '99+' : ch.unread_count}</span>
           )}
         </div>
       </div>
