@@ -429,6 +429,10 @@ export default function Sidebar({ onAddContact, onCreateGroup }: Props) {
                       <CollapsibleSectionLabel
                         collapsed={collapsed}
                         onToggle={() => toggleFolder(folder)}
+                        onDropContact={async (pk) => {
+                          await invoke('set_contact_folder', { publicKey: pk, folder })
+                          loadContacts()
+                        }}
                       >
                         {folder}
                       </CollapsibleSectionLabel>
@@ -460,6 +464,10 @@ export default function Sidebar({ onAddContact, onCreateGroup }: Props) {
                       <CollapsibleSectionLabel
                         collapsed={collapsed}
                         onToggle={() => toggleFolder('__unassigned__')}
+                        onDropContact={async (pk) => {
+                          await invoke('set_contact_folder', { publicKey: pk, folder: null })
+                          loadContacts()
+                        }}
                       >
                         Все контакты
                       </CollapsibleSectionLabel>
@@ -697,22 +705,36 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function CollapsibleSectionLabel({ children, collapsed, onToggle }: {
+function CollapsibleSectionLabel({ children, collapsed, onToggle, onDropContact }: {
   children: React.ReactNode
   collapsed: boolean
   onToggle: () => void
+  onDropContact?: (publicKey: string) => void
 }) {
+  const [isOver, setIsOver] = useState(false)
   return (
     <div
       style={{
         fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
-        color: 'var(--text-muted)', padding: '10px 16px 4px',
+        color: isOver ? 'var(--accent)' : 'var(--text-muted)',
+        padding: '10px 16px 4px',
         textTransform: 'uppercase',
         display: 'flex', alignItems: 'center', gap: 5,
         cursor: 'pointer', userSelect: 'none',
         borderBottom: collapsed ? '1px solid var(--border)' : 'none',
+        background: isOver ? 'rgba(0,255,65,0.08)' : 'transparent',
+        outline: isOver ? '1px dashed var(--accent)' : 'none',
+        transition: 'background 0.1s, color 0.1s',
       }}
       onClick={onToggle}
+      onDragOver={onDropContact ? (e => { e.preventDefault(); if (!isOver) setIsOver(true) }) : undefined}
+      onDragLeave={onDropContact ? (() => setIsOver(false)) : undefined}
+      onDrop={onDropContact ? (e => {
+        e.preventDefault()
+        setIsOver(false)
+        const pk = e.dataTransfer.getData('application/x-soviet-contact')
+        if (pk) onDropContact(pk)
+      }) : undefined}
     >
       <span style={{ fontSize: 10, flexShrink: 0 }}>{collapsed ? '▸' : '▾'}</span>
       <span>{children}</span>
@@ -742,10 +764,19 @@ function ContactRow({ contact, active, unread, displayName, lastMsg, lastTime, o
 }) {
   const initials = displayName.charAt(0).toUpperCase()
   const avatarColor = stringToColor(contact.public_key)
+  const [isDragging, setIsDragging] = useState(false)
 
   return (
     <div
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('application/x-soviet-contact', contact.public_key)
+        setIsDragging(true)
+      }}
+      onDragEnd={() => setIsDragging(false)}
       style={{
+        opacity: isDragging ? 0.4 : 1,
         ...row.wrap,
         background: active ? 'var(--row-active-bg)' : 'transparent',
       }}
