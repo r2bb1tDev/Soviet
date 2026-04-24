@@ -296,6 +296,17 @@ fn update_contact(
 }
 
 #[tauri::command]
+fn set_contact_folder(
+    public_key: String,
+    folder: Option<String>,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let db = state.db.0.lock().unwrap();
+    storage::set_contact_folder(&db, &public_key, folder.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_lan_peers(state: State<AppState>) -> Vec<network::LanPeer> {
     let lan = state.lan.lock().unwrap();
     match lan.as_ref() {
@@ -2398,6 +2409,7 @@ pub fn run() {
             add_contact,
             delete_contact,
             update_contact,
+            set_contact_folder,
             get_lan_peers,
             get_safety_number,
             get_contact_requests,

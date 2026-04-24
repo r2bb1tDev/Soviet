@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/badge/скачать-v2.8.0-blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v2.9.0-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
@@ -224,6 +224,7 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 - [x] v2.7.0 — voice-over-Nostr подтверждён через единый `send_packet_to_peer` (LAN → P2P → Nostr fallback), status presets с custom text, доработки Sidebar
 - [x] v2.7.1 — надёжность CI (.sig fallback upload), оптимизация release-pipeline, консолидация транспортов
 - [x] **v2.8.0 — Каналы удалены полностью** из UI. Весь фронт теперь построен вокруг прямых и групповых чатов + Nostr DM. Sidebar без вкладок «Каналы/Чаты», упрощённая архитектура, меньше артефактов сборки
+- [x] **v2.9.0 — ICQ-style папки контактов** (локально): сворачиваемые секции в сайдбаре (chevron ▸/▾, состояние персистится в localStorage), context-menu «📁 Переместить в папку…» с inline-панелью (существующие папки + ввод новой + «Без папки»), поле `local_folder` в SQLite — строго локальная метаданные, без сетевой синхронизации
 - [ ] v2.6.1 — **Multi-window через process-spawn:** настоящие отдельные окна через `std::process::Command` (не Tauri secondary webview, который сломан на Windows WebView2)
 - [ ] v2.6.2 — групповые чаты через Nostr-relay (сейчас только LAN/P2P), drag-tab-to-detach, онлайн-timeline контакта за неделю
 - [ ] v2.7 — **Multi-device identity (ПК):** экспорт/импорт identity через QR и seed-строку (Argon2id + ChaCha20-Poly1305), один аккаунт на двух ПК, passphrase на старте вместо OS keyring, dedup самого себя в Nostr DM

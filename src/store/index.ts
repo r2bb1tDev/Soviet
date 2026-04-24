@@ -24,6 +24,7 @@ export interface Contact {
   added_at: number
   verified: boolean
   avatar_data: string | null
+  local_folder?: string | null
 }
 
 export interface Message {

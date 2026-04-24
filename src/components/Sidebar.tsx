@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore, Contact, P2pPeer, SearchResult } from '../store'
 import ContactContextMenu from './ContactContextMenu'
@@ -123,6 +123,34 @@ export default function Sidebar({ onAddContact, onCreateGroup }: Props) {
 
   const favorites = filtered.filter(c => c.is_favorite)
   const regular   = filtered.filter(c => !c.is_favorite)
+
+  // ── Folder collapse state persisted in localStorage ──────────────────────────
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('sidebar_folders_collapsed')
+      if (raw) return new Set(JSON.parse(raw) as string[])
+    } catch { /* ignore */ }
+    return new Set()
+  })
+
+  const toggleFolder = useCallback((folder: string) => {
+    setCollapsedFolders(prev => {
+      const next = new Set(prev)
+      if (next.has(folder)) next.delete(folder)
+      else next.add(folder)
+      try { localStorage.setItem('sidebar_folders_collapsed', JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
+  }, [])
+
+  // Distinct folder names from non-favorite contacts (alphabetical)
+  const folderNames = useMemo(() => {
+    const names = new Set<string>()
+    regular.forEach(c => { if (c.local_folder) names.add(c.local_folder) })
+    return [...names].sort()
+  }, [regular])
+
+  const hasAnyFolder = folderNames.length > 0
 
   // Групповые чаты
   const groupChats = chats.filter(c => c.chat_type === 'group')
@@ -369,7 +397,7 @@ export default function Sidebar({ onAddContact, onCreateGroup }: Props) {
               </>
             )}
 
-            {regular.length > 0 && (
+            {regular.length > 0 && !hasAnyFolder && (
               <>
                 {favorites.length > 0 && <SectionLabel>Контакты</SectionLabel>}
                 {regular.map(c => (
@@ -386,6 +414,72 @@ export default function Sidebar({ onAddContact, onCreateGroup }: Props) {
                     searchQuery={sidebarSearch}
                   />
                 ))}
+              </>
+            )}
+
+            {regular.length > 0 && hasAnyFolder && (
+              <>
+                {/* Named folders */}
+                {folderNames.map(folder => {
+                  const folderContacts = regular.filter(c => c.local_folder === folder)
+                  if (folderContacts.length === 0) return null
+                  const collapsed = collapsedFolders.has(folder)
+                  return (
+                    <div key={folder}>
+                      <CollapsibleSectionLabel
+                        collapsed={collapsed}
+                        onToggle={() => toggleFolder(folder)}
+                      >
+                        {folder}
+                      </CollapsibleSectionLabel>
+                      {!collapsed && folderContacts.map(c => (
+                        <ContactRow
+                          key={c.public_key}
+                          contact={c}
+                          active={activeChat?.peer_key === c.public_key}
+                          unread={unreadFor(c.public_key)}
+                          displayName={displayName(c)}
+                          lastMsg={lastMsgFor(c.public_key)}
+                          lastTime={lastTimeFor(c.public_key)}
+                          onClick={() => openChat(c)}
+                          onContextMenu={e => handleContextMenu(e, c)}
+                          searchQuery={sidebarSearch}
+                        />
+                      ))}
+                    </div>
+                  )
+                })}
+
+                {/* Unassigned contacts under "Все контакты" */}
+                {(() => {
+                  const unassigned = regular.filter(c => !c.local_folder)
+                  if (unassigned.length === 0) return null
+                  const collapsed = collapsedFolders.has('__unassigned__')
+                  return (
+                    <div>
+                      <CollapsibleSectionLabel
+                        collapsed={collapsed}
+                        onToggle={() => toggleFolder('__unassigned__')}
+                      >
+                        Все контакты
+                      </CollapsibleSectionLabel>
+                      {!collapsed && unassigned.map(c => (
+                        <ContactRow
+                          key={c.public_key}
+                          contact={c}
+                          active={activeChat?.peer_key === c.public_key}
+                          unread={unreadFor(c.public_key)}
+                          displayName={displayName(c)}
+                          lastMsg={lastMsgFor(c.public_key)}
+                          lastTime={lastTimeFor(c.public_key)}
+                          onClick={() => openChat(c)}
+                          onContextMenu={e => handleContextMenu(e, c)}
+                          searchQuery={sidebarSearch}
+                        />
+                      ))}
+                    </div>
+                  )
+                })()}
               </>
             )}
 
@@ -599,6 +693,29 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
       textTransform: 'uppercase',
     }}>
       {children}
+    </div>
+  )
+}
+
+function CollapsibleSectionLabel({ children, collapsed, onToggle }: {
+  children: React.ReactNode
+  collapsed: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div
+      style={{
+        fontSize: 11, fontWeight: 600, letterSpacing: '0.04em',
+        color: 'var(--text-muted)', padding: '10px 16px 4px',
+        textTransform: 'uppercase',
+        display: 'flex', alignItems: 'center', gap: 5,
+        cursor: 'pointer', userSelect: 'none',
+        borderBottom: collapsed ? '1px solid var(--border)' : 'none',
+      }}
+      onClick={onToggle}
+    >
+      <span style={{ fontSize: 10, flexShrink: 0 }}>{collapsed ? '▸' : '▾'}</span>
+      <span>{children}</span>
     </div>
   )
 }

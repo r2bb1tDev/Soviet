@@ -132,6 +132,7 @@ pub struct DbContact {
     pub added_at: i64,
     pub verified: bool,
     pub avatar_data: Option<String>,
+    pub local_folder: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -451,6 +452,8 @@ fn migrate(conn: &Connection) -> anyhow::Result<()> {
     let _ = conn.execute("ALTER TABLE nostr_messages ADD COLUMN is_deleted INTEGER DEFAULT 0", []);
     // Avatar column for contacts (silently ignored if already present)
     let _ = conn.execute("ALTER TABLE contacts ADD COLUMN avatar_data TEXT", []);
+    // Local folder column for contacts (silently ignored if already present)
+    let _ = conn.execute("ALTER TABLE contacts ADD COLUMN local_folder TEXT", []);
     Ok(())
 }
 
@@ -606,7 +609,7 @@ pub fn upsert_contact(conn: &Connection, c: &DbContact) -> anyhow::Result<()> {
 pub fn get_contacts(conn: &Connection) -> anyhow::Result<Vec<DbContact>> {
     let mut stmt = conn.prepare(
         "SELECT id,public_key,nickname,local_alias,status,status_text,
-                last_seen,notes,is_blocked,is_favorite,added_at,verified,avatar_data
+                last_seen,notes,is_blocked,is_favorite,added_at,verified,avatar_data,local_folder
          FROM contacts WHERE is_blocked=0
          ORDER BY CASE status
              WHEN 'online' THEN 0 WHEN 'away' THEN 1 WHEN 'busy' THEN 2
@@ -627,9 +630,18 @@ pub fn get_contacts(conn: &Connection) -> anyhow::Result<Vec<DbContact>> {
             added_at: r.get(10)?,
             verified: r.get::<_,i64>(11)? != 0,
             avatar_data: r.get(12).unwrap_or(None),
+            local_folder: r.get(13).unwrap_or(None),
         })
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+pub fn set_contact_folder(conn: &Connection, public_key: &str, folder: Option<&str>) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE contacts SET local_folder=?1 WHERE public_key=?2",
+        params![folder, public_key],
+    )?;
+    Ok(())
 }
 
 pub fn update_contact_status(conn: &Connection, pk: &str, status: &str, text: Option<&str>) -> anyhow::Result<()> {
