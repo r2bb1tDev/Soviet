@@ -4,6 +4,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { useStore } from '../store'
 import BearLogo from '../components/BearLogo'
 import ShareCard from '../components/ShareCard'
+import QRCode from 'qrcode'
 
 const SKINS = [
   { id: 'terminal', label: 'Terminal', preview: { bg: '#1A1A1A', accent: '#D0D0D0', sidebar: '#1F1F1F', bubble: '#2D2D2D' } },
@@ -39,6 +40,7 @@ export default function Settings() {
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   const [copiedPub, setCopiedPub] = useState(false)
   const [copiedPriv, setCopiedPriv] = useState(false)
+  const [keyQR, setKeyQR] = useState<string | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(myAvatar)
   const [p2pPeerId, setP2pPeerId] = useState<string | null>(null)
   const [uiScale, setUiScale] = useState<number>(() => {
@@ -285,14 +287,42 @@ export default function Settings() {
               </Section>
 
               {/* Приватный ключ */}
-              <Section title="Резервная копия ключа">
+              <Section title="Резервная копия ключа / Multi-device">
                 <div style={s.keyRow}>
                   <span style={{...s.keyText, filter:'blur(4px)', userSelect:'none'}}>{privKey}</span>
                   <button className="btn-icon" onClick={copyKey} title="Копировать">
                     {copiedPriv ? '✓' : '📋'}
                   </button>
                 </div>
-                <p style={s.hint}>⚠️ Никому не передавайте приватный ключ!</p>
+                <p style={s.hint}>⚠️ Никому не передавайте приватный ключ! QR-код содержит ваши ключи целиком — сканируйте только со второго устройства, которому доверяете.</p>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button className="btn-secondary" style={{ fontSize: 12 }}
+                    onClick={async () => {
+                      if (keyQR) { setKeyQR(null); return }
+                      if (!privKey) return
+                      try {
+                        const url = await QRCode.toDataURL(privKey, { width: 220, margin: 2, errorCorrectionLevel: 'M' })
+                        setKeyQR(url)
+                      } catch (e) { console.error('QR gen failed', e) }
+                    }}>
+                    {keyQR ? '✕ Скрыть QR' : '🔲 Показать QR для переноса'}
+                  </button>
+                </div>
+                {keyQR && (
+                  <div style={{
+                    marginTop: 10, padding: 12,
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                  }}>
+                    <img src={keyQR} width={220} height={220} style={{ imageRendering: 'pixelated', background: '#fff', borderRadius: 4 }} />
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.4 }}>
+                      Отсканируйте или отобразите этот QR на втором устройстве и<br/>
+                      вставьте в «Восстановить из ключей» при первом запуске
+                    </div>
+                  </div>
+                )}
               </Section>
 
               {/* Сеть */}

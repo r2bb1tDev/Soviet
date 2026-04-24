@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useStore } from '../store'
 import BearLogo from '../components/BearLogo'
+import QRCode from 'qrcode'
 
 export default function Onboarding() {
   const [step, setStep] = useState<'name' | 'keys' | 'import'>('name')
@@ -13,6 +14,7 @@ export default function Onboarding() {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [exportCopied, setExportCopied] = useState(false)
+  const [keyQR, setKeyQR] = useState<string | null>(null)
   const [customId, setCustomId] = useState('')
   const [customIdSaved, setCustomIdSaved] = useState(false)
   const [customIdError, setCustomIdError] = useState('')
@@ -156,6 +158,22 @@ export default function Onboarding() {
             <button className="btn-secondary" style={{ ...s.btn, fontSize: 13, marginBottom: 8 }} onClick={exportKeys}>
               {exportCopied ? '✓ Скопировано в буфер' : '📥 Скопировать приватный ключ'}
             </button>
+            <button className="btn-secondary" style={{ ...s.btn, fontSize: 13, marginBottom: 8, marginTop: 0 }}
+              onClick={async () => {
+                if (keyQR) { setKeyQR(null); return }
+                if (!privKey) return
+                try {
+                  const url = await QRCode.toDataURL(privKey, { width: 200, margin: 2, errorCorrectionLevel: 'M' })
+                  setKeyQR(url)
+                } catch (e) { console.error('QR gen failed', e) }
+              }}>
+              {keyQR ? '✕ Скрыть QR' : '🔲 QR для переноса на второе устройство'}
+            </button>
+            {keyQR && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+                <img src={keyQR} width={200} height={200} style={{ imageRendering: 'pixelated', background: '#fff', borderRadius: 4 }} />
+              </div>
+            )}
 
             <button className="btn-primary" style={s.btn} onClick={() => setPage('main')}>
               Готово ✓
