@@ -1,0 +1,82 @@
+name: Android (experimental)
+
+# Scaffold CI для Android-сборок. Триггер ТОЛЬКО ручной — сборка пока не доведена до конца
+# и будет падать до первой настройки (`cargo tauri android init` в локальной среде, коммит gen/android/).
+# Цель: иметь готовый скелет, чтобы когда будут ключи Play Store + пройдены первые локальные init —
+# билд автоматически собирался при каждом pre-release теге.
+#
+# Roadmap: v2.13+ — рабочий unsigned APK в Releases, v2.14+ — signed release + Play Store upload.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build'
+        required: false
+        default: 'main'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;26.1.10909125"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --version "^2.1" --locked
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Tauri Android build
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          # Первый запуск: если src-tauri/gen/android нет — init.
+          # ПРИМЕЧАНИЕ: init ожидает интерактивного confirm на идентификатор.
+          # Перед первым запуском в CI нужно закоммитить результат локального init.
+          if [ ! -d "src-tauri/gen/android" ]; then
+            echo "::warning::Android project not initialized. Run 'cargo tauri android init' locally and commit src-tauri/gen/android/ first."
+            echo "Skipping build."
+            exit 0
+          fi
+          cargo tauri android build --apk
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soviet-android-unsigned
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+          retention-days: 14

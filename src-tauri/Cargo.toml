@@ -1,6 +1,6 @@
 [package]
 name = "sovietmsg"
-version = "2.10.0"
+version = "2.11.0"
 description = "Soviet — decentralized messenger"
 authors = ["Soviet Contributors"]
 edition = "2021"
