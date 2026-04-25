@@ -1,0 +1,122 @@
+name: iOS (experimental)
+
+# Scaffold CI для iOS-сборок (v2.13.0). Триггер ТОЛЬКО ручной — сборка не работает
+# без двух предусловий, которых сейчас нет:
+#   1. Локальный `cargo tauri ios init` (нужен macOS + Xcode), коммит src-tauri/gen/apple/
+#   2. Apple Developer аккаунт ($99/год) и секреты:
+#      - APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD — .p12 для подписи
+#      - APPLE_SIGNING_IDENTITY — "Apple Development: ..." or "Apple Distribution: ..."
+#      - APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID — для notarization
+#      - APPLE_KEYCHAIN_PASSWORD — пароль временного keychain
+#      - IOS_PROVISIONING_PROFILE — base64 .mobileprovision
+#
+# Без этих секретов сборка завершается warning'ом и не падает (early-exit).
+# Когда secrets будут заданы — workflow начнёт собирать .ipa и складывать в artifacts.
+#
+# Roadmap: v2.14+ — рабочий unsigned dev .ipa в artifacts, v2.15+ — TestFlight upload.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build'
+        required: false
+        default: 'main'
+
+jobs:
+  ios:
+    runs-on: macos-14
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --version "^2.1" --locked
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check for prerequisites
+        id: check
+        shell: bash
+        env:
+          _CERT_B64: ${{ secrets.APPLE_CERTIFICATE }}
+          _SIGN_ID:  ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          missing=0
+          if [ ! -d "src-tauri/gen/apple" ]; then
+            echo "::warning::iOS project not initialized. Run 'cargo tauri ios init' locally and commit src-tauri/gen/apple/ first."
+            missing=1
+          fi
+          if [ -z "$_CERT_B64" ] || [ -z "$_SIGN_ID" ]; then
+            echo "::warning::Apple Developer secrets not configured (APPLE_CERTIFICATE, APPLE_SIGNING_IDENTITY). Will skip signing."
+            missing=1
+          fi
+          if [ $missing -eq 1 ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Import iOS signing certificate
+        if: steps.check.outputs.skip == 'false'
+        env:
+          _CERT_B64:  ${{ secrets.APPLE_CERTIFICATE }}
+          _CERT_PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          _KC_PASS:   ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          _SIGN_ID:   ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          _PROFILE:   ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          security create-keychain -p "$_KC_PASS" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$_KC_PASS" build.keychain
+          echo "$_CERT_B64" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 -k build.keychain \
+            -P "$_CERT_PASS" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$_KC_PASS" build.keychain
+          rm /tmp/cert.p12
+          # Provisioning profile в нужное место
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/soviet.mobileprovision
+          echo "APPLE_SIGNING_IDENTITY=$_SIGN_ID" >> $GITHUB_ENV
+
+      - name: Tauri iOS build
+        if: steps.check.outputs.skip == 'false'
+        env:
+          APPLE_ID:       ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID:  ${{ secrets.APPLE_TEAM_ID }}
+        run: cargo tauri ios build
+
+      - name: Upload .ipa
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: soviet-ios
+          path: src-tauri/gen/apple/build/**/*.ipa
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Skip summary
+        if: steps.check.outputs.skip == 'true'
+        run: |
+          echo "iOS build skipped — see warnings above for missing prerequisites."
+          echo "Set up Apple Developer secrets in repo Settings → Secrets, then re-run."

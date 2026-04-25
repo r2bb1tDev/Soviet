@@ -1921,6 +1921,48 @@ fn delete_chat(chat_id: i64, state: State<AppState>) -> Result<(), String> {
     storage::delete_direct_chat(&db, chat_id).map_err(|e| e.to_string())
 }
 
+/// Открыть чат в отдельном OS-окне (pop-out).
+///
+/// Создаёт новый Tauri WebviewWindow с URL-параметром `?chat=<chat_id>`.
+/// Frontend по этому параметру рендерит standalone-режим (только ChatWindow,
+/// без Sidebar). Это даёт настоящие отдельные OS-окна — можно перетащить на
+/// другой монитор, свернуть/развернуть независимо.
+///
+/// Architectural note (v2.13.0): мы используем native multi-window Tauri,
+/// а не отдельные процессы через std::process::Command. Это значит все окна
+/// шарят один Rust-процесс и одно SQLite-соединение — нет проблем с
+/// конкурентным write-доступом. Минус: если краш в одном webview — все падают.
+/// Process-spawn вариант оставлен на будущее (требует IPC между процессами,
+/// SQLite WAL-coordination и раздельные network ports).
+#[tauri::command]
+async fn open_chat_window(chat_id: i64, app: tauri::AppHandle) -> Result<(), String> {
+    let label = format!("chat-{}", chat_id);
+
+    // Если окно уже открыто — просто фокусируем, не дублируем
+    if let Some(existing) = app.get_webview_window(&label) {
+        existing.show().map_err(|e| e.to_string())?;
+        existing.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let url = format!("index.html?chat={}", chat_id);
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App(url.into()),
+    )
+    .title(format!("Soviet — chat #{}", chat_id))
+    .inner_size(640.0, 540.0)
+    .min_inner_size(400.0, 320.0)
+    .resizable(true)
+    .decorations(true)
+    .center()
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 #[tauri::command]
 fn search_messages(
     query: String,
@@ -2128,6 +2170,7 @@ pub fn run() {
             delete_message_cmd,
             nostr_get_pubkey,
             delete_chat,
+            open_chat_window,
             get_p2p_peers,
             search_messages,
             sign_out,

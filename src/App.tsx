@@ -7,11 +7,23 @@ import { useStore } from './store'
 import Onboarding from './pages/Onboarding'
 import Main from './pages/Main'
 import Settings from './pages/Settings'
+import ChatWindow from './components/ChatWindow'
 import ToastContainer from './components/Toast'
 import KeyboardShortcuts from './components/KeyboardShortcuts'
 import GlobalSearch from './components/GlobalSearch'
 import { isSoundEnabled, playNotificationBeep, playOnlineSound, playOfflineSound, playBuzzSound } from './utils/sounds'
 import './styles/global.css'
+
+// Pop-out mode (v2.13.0): второе/третье/N-ое окно с одним чатом —
+// читаем chat_id из URL `?chat=<id>` и рендерим standalone ChatWindow.
+const POPOUT_CHAT_ID: number | null = (() => {
+  try {
+    const v = new URLSearchParams(window.location.search).get('chat')
+    if (!v) return null
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) ? n : null
+  } catch { return null }
+})()
 
 export default function App() {
   const {
@@ -237,8 +249,26 @@ export default function App() {
     return () => { unlisten.then(f => f()) }
   }, [updateAvailable])
 
+  // Pop-out: после загрузки чатов — выставить activeChat по URL-параметру.
+  useEffect(() => {
+    if (POPOUT_CHAT_ID === null) return
+    let cancelled = false
+    ;(async () => {
+      await loadContacts()
+      await loadChats()
+      if (cancelled) return
+      const chat = useStore.getState().chats.find(c => c.id === POPOUT_CHAT_ID)
+      if (chat) {
+        useStore.getState().setActiveChat(chat)
+        useStore.getState().openTab(chat)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   // Загружаем данные при открытии главного окна
   useEffect(() => {
+    if (POPOUT_CHAT_ID !== null) return  // pop-out имеет свою загрузку выше
     if (page === 'main') {
       loadContacts()
       loadChats()
@@ -444,6 +474,19 @@ export default function App() {
     }
   }, [])
 
+  // Pop-out режим: рендерим только ChatWindow, без Sidebar/Settings/Onboarding.
+  // Импорт ChatWindow здесь (top-level), чтобы не тащить его в основной bundle
+  // если popout не используется. На практике bundler всё равно сольёт — это
+  // лишь эстетика.
+  if (POPOUT_CHAT_ID !== null) {
+    return (
+      <>
+        <PopoutShell />
+        <ToastContainer />
+      </>
+    )
+  }
+
   return (
     <>
       {page === 'onboarding' && <Onboarding />}
@@ -488,6 +531,32 @@ export default function App() {
       {showShortcuts && <KeyboardShortcuts onClose={() => setShowShortcuts(false)} />}
       {showGlobalSearch && <GlobalSearch onClose={() => setShowGlobalSearch(false)} />}
     </>
+  )
+}
+
+/** Pop-out (отдельное OS-окно для одного чата, v2.13.0) */
+function PopoutShell() {
+  const activeChat = useStore(s => s.activeChat)
+  if (!activeChat) {
+    return (
+      <div style={{
+        width: '100vw', height: '100vh',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--bg-primary)', color: 'var(--text-muted)',
+        fontFamily: 'monospace',
+      }}>
+        Загрузка чата…
+      </div>
+    )
+  }
+  return (
+    <div style={{
+      width: '100vw', height: '100vh',
+      display: 'flex', flexDirection: 'column',
+      background: 'var(--bg-primary)', overflow: 'hidden',
+    }}>
+      <ChatWindow />
+    </div>
   )
 }
 
