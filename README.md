@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/r2bb1tDev/Soviet/releases/latest">
-    <img src="https://img.shields.io/badge/скачать-v2.11.0-blue" alt="Download"/>
+    <img src="https://img.shields.io/badge/скачать-v2.12.0-blue" alt="Download"/>
   </a>
   <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green"/></a>
@@ -228,6 +228,7 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 - [x] **v2.9.1 — DnD контактов между папками**: тащи контакт мышкой на заголовок папки → автоматически перемещается (включая «Все контакты» для сброса в «без папки»), визуальная подсветка drop-зоны
 - [x] **v2.10.0 — Multi-device identity через QR**: экспорт приватного ключа в QR-код (в Settings и Onboarding), второе устройство сканирует/вставляет → одна identity на двух ПК. Паролевая защита seed запланирована на v2.11 (Argon2id)
 - [x] **v2.11.0 — Android CI scaffold + Device-sync protocol spec**: `.github/workflows/android.yml` (ручной триггер, ждёт первого `cargo tauri android init`); `docs/DEVICE_SYNC.md` — полная спецификация device-to-device history sync: challenge-response верификация identity, ECDH session key, стриминг шифрованного SQLite-дампа по LAN/P2P (без Nostr), dedup по `(sender_key, timestamp, content_hash)`. Реализация — v3.0
+- [x] **v2.12.0 — Полная зачистка backend-кода каналов**: удалены `nostr.rs` cmds для kinds 40/41/42/5/7 (CreateChannel, JoinChannel, LeaveChannel, EditChannelMessage, DeleteChannelMessage, SendReaction, SendComment, UpdateChannelMeta), все 15 Tauri-команд `nostr_*_channel*`, структуры `NostrChannelRow` / `NostrMessageRow` / `NostrReactionRow` и SQL-таблицы `nostr_channels` / `nostr_messages` / `nostr_reactions`. На фронте удалены интерфейсы `NostrChannel` / `NostrMessage` / `ChannelReaction`, парсеры `parseChannelContent` / `buildChannelContent` / `buildPollContent`, и весь блок `loadChannels` / `setActiveChannel` / `sendChannelMessage` etc из `store/index.ts`. Nostr-relay-соединение остаётся — оно нужно для DM (kind 4444) между странами. Минус ~1100 LOC. Параллельно: починены два пред-существующих E0063 (DbContact missing `local_folder` field в `add_contact` и `accept_contact_request`)
 - [ ] v2.6.1 — **Multi-window через process-spawn:** настоящие отдельные окна через `std::process::Command` (не Tauri secondary webview, который сломан на Windows WebView2)
 - [ ] v2.6.2 — групповые чаты через Nostr-relay (сейчас только LAN/P2P), drag-tab-to-detach, онлайн-timeline контакта за неделю
 - [ ] v2.7 — **Multi-device identity (ПК):** экспорт/импорт identity через QR и seed-строку (Argon2id + ChaCha20-Poly1305), один аккаунт на двух ПК, passphrase на старте вместо OS keyring, dedup самого себя в Nostr DM

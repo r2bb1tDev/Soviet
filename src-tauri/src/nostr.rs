@@ -1,7 +1,12 @@
-//! Nostr protocol client — channels (kinds 40, 41, 42) + Soviet DMs (kind 4444)
+//! Nostr protocol client — Soviet DM transport (kind 4444) only.
+//!
+//! История: релиз v2.12.0 убрал весь код каналов (kinds 40/41/42/5/7) —
+//! они не использовались UI со времён v2.8.0, а relay-соединение нужно
+//! исключительно для доставки зашифрованных DM между странами, когда LAN
+//! и P2P недоступны.
 use std::sync::Arc;
 use tauri::Manager;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 use serde::{Deserialize, Serialize};
@@ -29,32 +34,6 @@ pub struct NostrEvent {
 }
 
 pub enum NostrCmd {
-    CreateChannel {
-        name: String,
-        about: String,
-        reply_tx: oneshot::Sender<Result<String, String>>,
-    },
-    UpdateChannelMeta {
-        channel_id: String,
-        name: String,
-        about: String,
-        picture: String,
-    },
-    SendMessage {
-        channel_id: String,
-        relay: String,
-        content: String,
-        reply_to: Option<String>,
-    },
-    JoinChannel {
-        channel_id: String,
-    },
-    LeaveChannel {
-        channel_id: String,
-    },
-    DeleteChannel {
-        channel_id: String,
-    },
     /// Отправить зашифрованное личное сообщение через Nostr relay (internet fallback)
     /// Kind 4444 — содержит Soviet EncryptedMessage JSON, E2E шифрование Soviet крипто
     SendDm {
@@ -64,34 +43,6 @@ pub enum NostrCmd {
     /// Подписаться на входящие DM (вызывается при смене/создании identity)
     SubscribeDms {
         my_soviet_pk: String, // Base58 Ed25519
-    },
-    /// Редактировать сообщение канала — Kind 42 с edit-тегом
-    EditChannelMessage {
-        channel_id: String,
-        original_event_id: String,
-        relay: String,
-        new_content: String,
-    },
-    /// Удалить сообщение канала — Kind 5
-    DeleteChannelMessage {
-        event_id: String,
-    },
-    /// Реакция на сообщение — Kind 7 (NIP-25)
-    SendReaction {
-        target_event_id: String,
-        target_author_pubkey: String,
-        emoji: String,
-    },
-    /// Убрать реакцию — Kind 5 на reaction event
-    RemoveReaction {
-        reaction_event_id: String,
-    },
-    /// Отправить комментарий (ответ на пост) — Kind 42 с reply-тегом; от любого подписчика
-    SendComment {
-        channel_id: String,
-        relay: String,
-        parent_event_id: String,
-        content: String,
     },
 }
 
@@ -160,7 +111,6 @@ pub fn start(
     secret_hex: String,
     pubkey_hex: String,
     my_soviet_pk: String,
-    initial_channel_ids: Vec<String>,
     app_handle: tauri::AppHandle,
     db: Arc<std::sync::Mutex<rusqlite::Connection>>,
 ) -> NostrHandle {
@@ -179,7 +129,6 @@ pub fn start(
             secret_hex,
             pubkey_hex,
             my_soviet_pk,
-            initial_channel_ids,
             cmd_rx,
             app_handle,
             db,
@@ -193,7 +142,6 @@ async fn relay_loop(
     secret_hex: String,
     pubkey_hex: String,
     my_soviet_pk: String,
-    initial_channel_ids: Vec<String>,
     mut cmd_rx: mpsc::Receiver<NostrCmd>,
     app_handle: tauri::AppHandle,
     db: Arc<std::sync::Mutex<rusqlite::Connection>>,
@@ -234,23 +182,15 @@ async fn relay_loop(
                 // reader task
                 let app2 = app_handle.clone();
                 let db2 = db.clone();
-                let my_pk = pubkey_hex.clone();
-                let soviet_pk_hex = my_soviet_pk_hex.clone();
                 tokio::spawn(async move {
                     while let Some(Ok(WsMessage::Text(text))) = read.next().await {
-                        on_relay_msg(&text, &app2, &db2, &my_pk, &soviet_pk_hex).await;
+                        on_relay_msg(&text, &app2, &db2).await;
                     }
                 });
 
                 log::info!("Nostr: connected to {}", url);
             }
         }
-    }
-
-    // Subscribe to initial channels
-    if !initial_channel_ids.is_empty() {
-        let sub = sub_msg(&initial_channel_ids);
-        broadcast(&relay_senders, &sub);
     }
 
     // Subscribe to incoming Soviet DMs (Kind 4444 tagged with our Soviet pubkey)
@@ -265,58 +205,6 @@ async fn relay_loop(
     // Command loop
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
-            NostrCmd::CreateChannel { name, about, reply_tx } => {
-                let meta = json!({"name": name, "about": about, "picture": ""}).to_string();
-                let ev = build_event(40, vec![], meta, &pubkey_hex, &secret_hex);
-                let channel_id = ev.id.clone();
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-                let _ = reply_tx.send(Ok(channel_id));
-            }
-
-            NostrCmd::SendMessage { channel_id, relay, content, reply_to } => {
-                let mut tags = vec![
-                    vec!["e".to_string(), channel_id.clone(), relay.clone(), "root".to_string()],
-                ];
-                if let Some(rid) = reply_to {
-                    tags.push(vec!["e".to_string(), rid, relay, "reply".to_string()]);
-                }
-                let ev = build_event(42, tags, content, &pubkey_hex, &secret_hex);
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-            }
-
-            NostrCmd::JoinChannel { channel_id } => {
-                let sub = json!(["REQ", format!("ch-{}", &channel_id[..8]),
-                    {"kinds": [42, 41], "#e": [channel_id.clone()], "limit": 100}
-                ]).to_string();
-                broadcast(&relay_senders, &sub);
-                // Also fetch channel info (kind 40)
-                let sub2 = json!(["REQ", format!("ci-{}", &channel_id[..8]),
-                    {"kinds": [40], "ids": [channel_id], "limit": 1}
-                ]).to_string();
-                broadcast(&relay_senders, &sub2);
-            }
-
-            NostrCmd::UpdateChannelMeta { channel_id, name, about, picture } => {
-                let meta = json!({"name": name, "about": about, "picture": picture}).to_string();
-                let tags = vec![vec!["e".to_string(), channel_id]];
-                let ev = build_event(41, tags, meta, &pubkey_hex, &secret_hex);
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-            }
-
-            NostrCmd::LeaveChannel { channel_id } => {
-                let close = json!(["CLOSE", format!("ch-{}", &channel_id[..8.min(channel_id.len())])]).to_string();
-                broadcast(&relay_senders, &close);
-            }
-
-            NostrCmd::DeleteChannel { channel_id } => {
-                let tags = vec![vec!["e".to_string(), channel_id.clone()]];
-                let ev = build_event(5, tags, "channel deleted".to_string(), &pubkey_hex, &secret_hex);
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-                let close = json!(["CLOSE", format!("ch-{}", &channel_id[..8.min(channel_id.len())])]).to_string();
-                broadcast(&relay_senders, &close);
-            }
-
-            // ── Internet DM fallback ──────────────────────────────────────────
             NostrCmd::SendDm { recipient_soviet_pk, encrypted_json } => {
                 let recipient_hex = soviet_pk_to_hex(&recipient_soviet_pk);
                 if recipient_hex.is_empty() {
@@ -342,51 +230,6 @@ async fn relay_loop(
                     log::info!("Nostr: DM subscription updated for {:.16}…", pk_hex);
                 }
             }
-
-            // ── Edit channel message — Kind 42 with edit tag ──────────────────
-            NostrCmd::EditChannelMessage { channel_id, original_event_id, relay, new_content } => {
-                let tags = vec![
-                    vec!["e".to_string(), channel_id, relay, "root".to_string()],
-                    vec!["e".to_string(), original_event_id, "".to_string(), "edit".to_string()],
-                ];
-                let ev = build_event(42, tags, new_content, &pubkey_hex, &secret_hex);
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-            }
-
-            // ── Delete channel message — Kind 5 ──────────────────────────────
-            NostrCmd::DeleteChannelMessage { event_id } => {
-                let tags = vec![vec!["e".to_string(), event_id]];
-                let ev = build_event(5, tags, "deleted".to_string(), &pubkey_hex, &secret_hex);
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-            }
-
-            // ── Reaction — Kind 7 (NIP-25) ───────────────────────────────────
-            NostrCmd::SendReaction { target_event_id, target_author_pubkey, emoji } => {
-                let tags = vec![
-                    vec!["e".to_string(), target_event_id],
-                    vec!["p".to_string(), target_author_pubkey],
-                    vec!["t".to_string(), "soviet-channel".to_string()],
-                ];
-                let ev = build_event(7, tags, emoji, &pubkey_hex, &secret_hex);
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-            }
-
-            // ── Remove reaction — Kind 5 on reaction event ───────────────────
-            NostrCmd::RemoveReaction { reaction_event_id } => {
-                let tags = vec![vec!["e".to_string(), reaction_event_id]];
-                let ev = build_event(5, tags, "reaction removed".to_string(), &pubkey_hex, &secret_hex);
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-            }
-
-            // ── Comment (reply to post) — Kind 42 with reply tag ─────────────
-            NostrCmd::SendComment { channel_id, relay, parent_event_id, content } => {
-                let tags = vec![
-                    vec!["e".to_string(), channel_id, relay.clone(), "root".to_string()],
-                    vec!["e".to_string(), parent_event_id, relay, "reply".to_string()],
-                ];
-                let ev = build_event(42, tags, content, &pubkey_hex, &secret_hex);
-                broadcast(&relay_senders, &json!(["EVENT", ev]).to_string());
-            }
         }
     }
 }
@@ -405,18 +248,10 @@ fn broadcast(senders: &[mpsc::UnboundedSender<String>], msg: &str) {
     }
 }
 
-fn sub_msg(channel_ids: &[String]) -> String {
-    json!(["REQ", "all-channels",
-        {"kinds": [42, 41], "#e": channel_ids, "limit": 200}
-    ]).to_string()
-}
-
 async fn on_relay_msg(
     text: &str,
     app: &tauri::AppHandle,
     db: &Arc<std::sync::Mutex<rusqlite::Connection>>,
-    my_pk: &str,
-    my_soviet_pk_hex: &str,
 ) {
     let Ok(val): Result<Value, _> = serde_json::from_str(text) else { return };
     let Some(arr) = val.as_array() else { return };
@@ -424,253 +259,121 @@ async fn on_relay_msg(
 
     let Ok(ev): Result<NostrEvent, _> = serde_json::from_value(arr[2].clone()) else { return };
 
-    match ev.kind {
-        40 => {
-            let Ok(meta): Result<Value, _> = serde_json::from_str(&ev.content) else { return };
-            let name = meta["name"].as_str().unwrap_or("").to_string();
-            let about = meta["about"].as_str().unwrap_or("").to_string();
-            let picture = meta["picture"].as_str().unwrap_or("").to_string();
-            {
-                let conn = db.lock().unwrap();
-                crate::storage::nostr_update_channel_meta(&conn, &ev.id, &name, &about, &picture, &ev.pubkey).ok();
-            }
-            use tauri::Emitter;
-            app.emit("nostr-channel-info", json!({
-                "id": ev.id, "name": name, "about": about,
-                "picture": picture, "creator_pubkey": ev.pubkey,
-            })).ok();
-        }
+    // Soviet DM (Kind 4444) — only kind we care about now.
+    if ev.kind != 4444 { return; }
 
-        42 => {
-            use tauri::Emitter;
+    // Получаем AppState для доступа к keypair
+    let state: tauri::State<crate::AppState> = app.state();
 
-            // Detect edit-tag: ["e", original_event_id, "", "edit"]
-            let edit_target = ev.tags.iter()
-                .find(|t| t.len() >= 4 && t[0] == "e" && t[3] == "edit")
-                .map(|t| t[1].clone());
+    // ВСЕГДА читаем актуальный pubkey из identity (а не захваченную при старте
+    // пустую строку — иначе после первого онбординга все DM молча отбрасываются).
+    let my_soviet_pk = state.identity.lock().unwrap()
+        .as_ref()
+        .map(|i| i.public_key.clone())
+        .unwrap_or_default();
+    if my_soviet_pk.is_empty() {
+        return; // identity ещё не загружена — игнорируем
+    }
+    let current_my_hex = soviet_pk_to_hex(&my_soviet_pk);
 
-            if let Some(original_id) = edit_target {
-                // This is an edit event — update existing message
-                let conn = db.lock().unwrap();
-                crate::storage::nostr_edit_message(&conn, &original_id, &ev.content, ev.created_at).ok();
-                drop(conn);
-                app.emit("nostr-message-edited", json!({
-                    "event_id": original_id,
-                    "new_content": ev.content,
-                    "edited_at": ev.created_at,
-                })).ok();
-                return;
-            }
+    // Проверяем, что сообщение адресовано нам
+    let recipient_hex = ev.tags.iter()
+        .find(|t| t.len() >= 2 && t[0] == "p")
+        .map(|t| t[1].clone())
+        .unwrap_or_default();
+    if recipient_hex != current_my_hex {
+        return;
+    }
 
-            let channel_id = ev.tags.iter()
-                .find(|t| t.len() >= 4 && t[0] == "e" && t[3] == "root")
-                .or_else(|| ev.tags.iter().find(|t| t.len() >= 2 && t[0] == "e"))
-                .map(|t| t[1].clone());
-            let Some(channel_id) = channel_id else { return };
+    // Парсим Soviet EncryptedMessage из content
+    let Ok(encrypted): Result<crate::crypto::EncryptedMessage, _> =
+        serde_json::from_str(&ev.content) else {
+        log::warn!("Nostr DM: failed to parse EncryptedMessage");
+        return;
+    };
 
-            let reply_to = ev.tags.iter()
-                .find(|t| t.len() >= 4 && t[0] == "e" && t[3] == "reply")
-                .map(|t| t[1].clone());
+    if encrypted.sender_pk == my_soviet_pk {
+        return; // Наше собственное сообщение
+    }
 
-            let is_mine = ev.pubkey == my_pk;
-
-            {
-                let conn = db.lock().unwrap();
-                crate::storage::nostr_save_message(
-                    &conn, &ev.id, &channel_id, &ev.pubkey,
-                    &ev.content, ev.created_at, reply_to.as_deref(), is_mine,
-                ).ok();
-            }
-
-            app.emit("nostr-message", json!({
-                "channel_id": channel_id,
-                "event_id": ev.id,
-                "sender_pubkey": ev.pubkey,
-                "content": ev.content,
-                "timestamp": ev.created_at,
-                "reply_to": reply_to,
-                "is_mine": is_mine,
-            })).ok();
-        }
-
-        5 => {
-            use tauri::Emitter;
-            for tag in &ev.tags {
-                if tag.len() >= 2 && tag[0] == "e" {
-                    let target_id = &tag[1];
-                    let conn = db.lock().unwrap();
-                    // Try soft-delete as channel message first
-                    crate::storage::nostr_soft_delete_message(&conn, target_id).ok();
-                    // Also remove reaction if it's a reaction deletion
-                    crate::storage::nostr_remove_reaction(&conn, target_id).ok();
-                    // Also try channel deletion (for kind 40 events)
-                    crate::storage::nostr_delete_channel(&conn, target_id).ok();
-                    drop(conn);
-                    app.emit("nostr-message-deleted", json!({
-                        "event_id": target_id
-                    })).ok();
-                    app.emit("nostr-channel-deleted", json!({ "channel_id": target_id })).ok();
-                }
-            }
-        }
-
-        // ── Kind 7: Reaction ──────────────────────────────────────────────────
-        7 => {
-            let target_event_id = ev.tags.iter()
-                .find(|t| t.len() >= 2 && t[0] == "e")
-                .map(|t| t[1].clone())
-                .unwrap_or_default();
-            if target_event_id.is_empty() { return; }
-
-            // Find channel_id for this message
-            let channel_id = {
-                let conn = db.lock().unwrap();
-                conn.query_row(
-                    "SELECT channel_id FROM nostr_messages WHERE event_id=?1",
-                    rusqlite::params![target_event_id],
-                    |r| r.get::<_, String>(0),
-                ).unwrap_or_default()
-            };
-            if channel_id.is_empty() { return; }
-
-            {
-                let conn = db.lock().unwrap();
-                crate::storage::nostr_save_reaction(
-                    &conn, &target_event_id, &channel_id,
-                    &ev.pubkey, &ev.content, &ev.id,
-                ).ok();
-            }
-
-            use tauri::Emitter;
-            app.emit("nostr-reaction", json!({
-                "event_id": target_event_id,
-                "channel_id": channel_id,
-                "reactor_pubkey": ev.pubkey,
-                "emoji": ev.content,
-                "reaction_event_id": ev.id,
-            })).ok();
-        }
-
-        // ── Soviet DM (Kind 4444) — E2E зашифрованное личное сообщение ──────
-        4444 => {
-            // Получаем AppState для доступа к keypair
-            let state: tauri::State<crate::AppState> = app.state();
-
-            // ВСЕГДА читаем актуальный pubkey из identity (а не захваченную при старте
-            // пустую строку — иначе после первого онбординга все DM молча отбрасываются).
-            let my_soviet_pk = state.identity.lock().unwrap()
-                .as_ref()
-                .map(|i| i.public_key.clone())
-                .unwrap_or_default();
-            if my_soviet_pk.is_empty() {
-                return; // identity ещё не загружена — игнорируем
-            }
-            let current_my_hex = soviet_pk_to_hex(&my_soviet_pk);
-
-            // Проверяем, что сообщение адресовано нам (используем АКТУАЛЬНЫЙ hex,
-            // не закэшированный — иначе после регистрации reader-task ловит пустоту).
-            let recipient_hex = ev.tags.iter()
-                .find(|t| t.len() >= 2 && t[0] == "p")
-                .map(|t| t[1].clone())
-                .unwrap_or_default();
-            if recipient_hex != current_my_hex {
-                let _ = my_soviet_pk_hex; // запасной аргумент для совместимости сигнатуры
-                return;
-            }
-
-            // Парсим Soviet EncryptedMessage из content
-            let Ok(encrypted): Result<crate::crypto::EncryptedMessage, _> =
-                serde_json::from_str(&ev.content) else {
-                log::warn!("Nostr DM: failed to parse EncryptedMessage");
-                return;
-            };
-
-            if encrypted.sender_pk == my_soviet_pk {
-                return; // Наше собственное сообщение
-            }
-
-            // Расшифровываем с помощью Soviet keypair
-            let decrypted_bytes = {
-                let kp_guard = state.keypair.lock().unwrap();
-                match kp_guard.as_ref() {
-                    Some(kp) => match crate::crypto::decrypt_message(kp, &encrypted) {
-                        Ok(b) => b,
-                        Err(_) => return,
-                    },
-                    None => return,
-                }
-            };
-
-            let decrypted_str = match String::from_utf8(decrypted_bytes) {
-                Ok(s) => s,
+    // Расшифровываем с помощью Soviet keypair
+    let decrypted_bytes = {
+        let kp_guard = state.keypair.lock().unwrap();
+        match kp_guard.as_ref() {
+            Some(kp) => match crate::crypto::decrypt_message(kp, &encrypted) {
+                Ok(b) => b,
                 Err(_) => return,
-            };
+            },
+            None => return,
+        }
+    };
 
-            // Если payload — это LanPacket (групповые сообщения, приглашения, etc.) — роутируем
-            if let Ok(packet) = serde_json::from_str::<crate::network::LanPacket>(&decrypted_str) {
-                // Только пакеты связанные с группами и коллаборацией (не plain message — он обрабатывается ниже)
-                match packet.packet_type.as_str() {
-                    "group_message" | "group_invite" | "member_left" | "group_dissolved"
-                    | "read_receipt" | "reaction" | "edit_message" | "delete_message"
-                    | "contact_request" | "hello" | "nudge" | "typing" => {
-                        crate::handle_lan_packet(app, packet);
-                        return;
-                    }
-                    _ => {}
-                }
+    let decrypted_str = match String::from_utf8(decrypted_bytes) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    // Если payload — это LanPacket (групповые сообщения, приглашения, etc.) — роутируем
+    if let Ok(packet) = serde_json::from_str::<crate::network::LanPacket>(&decrypted_str) {
+        // Только пакеты связанные с группами и коллаборацией (не plain message — он обрабатывается ниже)
+        match packet.packet_type.as_str() {
+            "group_message" | "group_invite" | "member_left" | "group_dissolved"
+            | "read_receipt" | "reaction" | "edit_message" | "delete_message"
+            | "contact_request" | "hello" | "nudge" | "typing" => {
+                crate::handle_lan_packet(app, packet);
+                return;
             }
+            _ => {}
+        }
+    }
 
-            let preview = decrypted_str;
+    let preview = decrypted_str;
 
-            // Сохраняем в БД (через Nostr-соединение db)
-            let conn = db.lock().unwrap();
-            if let Ok(chat_id) = crate::storage::get_or_create_direct_chat(&conn, &encrypted.sender_pk) {
-                // Проверяем дублирование (Nostr relay может переслать повторно)
-                if crate::storage::message_exists_by_ts(&conn, chat_id, encrypted.timestamp, &encrypted.sender_pk)
-                    .unwrap_or(false)
-                {
-                    return;
-                }
-
-                let preview_short = preview[..preview.len().min(100)].to_string();
-                let msg = crate::storage::DbMessage {
-                    id: 0,
-                    chat_id,
-                    sender_key:   encrypted.sender_pk.clone(),
-                    content:      ev.content.clone(),
-                    content_type: "text".to_string(),
-                    timestamp:    encrypted.timestamp,
-                    status:       "delivered".to_string(),
-                    reply_to:     None,
-                    edited_at:    None,
-                    is_deleted:   false,
-                    plaintext:    None,
-                };
-                if let Ok(msg_id) = crate::storage::save_message_with_preview(&conn, &msg, &preview_short, &preview_short) {
-                    crate::storage::increment_unread(&conn, chat_id).ok();
-                    drop(conn);
-
-                    use tauri::Emitter;
-                    app.emit("new-message", serde_json::json!({
-                        "chat_id":     chat_id,
-                        "msg_id":      msg_id,
-                        "sender_pk":   encrypted.sender_pk,
-                        "preview":     preview_short,
-                        "via":         "nostr",
-                    })).ok();
-
-                    // Иконка трея — новое сообщение
-                    if let Some(tray) = app.tray_by_id("main-tray") {
-                        if let Ok(icon) = tauri::image::Image::from_bytes(crate::TRAY_MSG_PNG) {
-                            tray.set_icon(Some(icon)).ok();
-                        }
-                    }
-                } else {
-                    drop(conn);
-                }
-            }
+    // Сохраняем в БД (через Nostr-соединение db)
+    let conn = db.lock().unwrap();
+    if let Ok(chat_id) = crate::storage::get_or_create_direct_chat(&conn, &encrypted.sender_pk) {
+        // Проверяем дублирование (Nostr relay может переслать повторно)
+        if crate::storage::message_exists_by_ts(&conn, chat_id, encrypted.timestamp, &encrypted.sender_pk)
+            .unwrap_or(false)
+        {
+            return;
         }
 
-        _ => {}
+        let preview_short = preview[..preview.len().min(100)].to_string();
+        let msg = crate::storage::DbMessage {
+            id: 0,
+            chat_id,
+            sender_key:   encrypted.sender_pk.clone(),
+            content:      ev.content.clone(),
+            content_type: "text".to_string(),
+            timestamp:    encrypted.timestamp,
+            status:       "delivered".to_string(),
+            reply_to:     None,
+            edited_at:    None,
+            is_deleted:   false,
+            plaintext:    None,
+        };
+        if let Ok(msg_id) = crate::storage::save_message_with_preview(&conn, &msg, &preview_short, &preview_short) {
+            crate::storage::increment_unread(&conn, chat_id).ok();
+            drop(conn);
+
+            use tauri::Emitter;
+            app.emit("new-message", serde_json::json!({
+                "chat_id":     chat_id,
+                "msg_id":      msg_id,
+                "sender_pk":   encrypted.sender_pk,
+                "preview":     preview_short,
+                "via":         "nostr",
+            })).ok();
+
+            // Иконка трея — новое сообщение
+            if let Some(tray) = app.tray_by_id("main-tray") {
+                if let Ok(icon) = tauri::image::Image::from_bytes(crate::TRAY_MSG_PNG) {
+                    tray.set_icon(Some(icon)).ok();
+                }
+            }
+        } else {
+            drop(conn);
+        }
     }
 }
